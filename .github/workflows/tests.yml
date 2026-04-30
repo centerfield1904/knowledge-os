@@ -13,9 +13,9 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests feedparser sentence-transformers scikit-learn numpy pytest
+        run: pip install -r requirements-dev.txt
 
       - name: Run unit tests
         run: python -m pytest tests/ -v -m "not integration"
         env:
-          PYTHONPATH: .
+          PYTHONPATH: src

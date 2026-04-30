@@ -290,13 +290,13 @@ GET /api/analytics/topics
 venv/bin/python -m pytest tests/ -v
 
 # Test full pipeline
-bash run_digest_v2.sh
+bash scripts/run_digest_v2.sh
 
 # Check database
 sqlite3 hn_digest_v2.db "SELECT COUNT(*) FROM items"
 
 # Local dashboard
-venv/bin/python -m streamlit run dashboard.py
+venv/bin/python -m streamlit run src/knowledge_os/dashboard.py
 ```
 
 ## Monitoring

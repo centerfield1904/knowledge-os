@@ -174,12 +174,12 @@ _Daily reflection · track engagement patterns_
 
 **Summary:**
 - Generator: `engagement_summary.py`
-- Wrapper: `send_engagement_summary.sh`
+- Wrapper: `scripts/send_engagement_summary.sh`
 - Cron: 5 PM daily (isolated session)
 
 **Digest:**
 - Generator: `process_digest.py`
-- Wrapper: `daily_digest.sh` → `run_digest_v2.sh`
+- Wrapper: `scripts/daily_digest.sh` → `run_digest_v2.sh`
 - Cron: 2 PM daily (isolated session)
 - Archive: `knos-digest/YYYY-MM-DD.md`
 
@@ -221,7 +221,7 @@ _Daily reflection · track engagement patterns_
 
 ### Completed ✅
 - Summary generator (`engagement_summary.py`)
-- Delivery wrapper (`send_engagement_summary.sh`)
+- Delivery wrapper (`scripts/send_engagement_summary.sh`)
 - Testing with real data (Feb 21 engagement)
 - Documentation (this file)
 

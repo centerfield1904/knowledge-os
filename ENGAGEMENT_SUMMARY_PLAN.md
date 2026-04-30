@@ -140,7 +140,7 @@ _Daily reflection · track engagement patterns_
 ### 2. Create Delivery Wrapper ✅
 ```bash
 #!/bin/bash
-# send_engagement_summary.sh
+# scripts/send_engagement_summary.sh
 
 cd "$(dirname "$0")"
 
@@ -163,7 +163,7 @@ fi
   "sessionTarget": "isolated",
   "payload": {
     "kind": "agentTurn",
-    "message": "Generate today's engagement summary. Run: bash /Users/vb/.openclaw/workspace/knowledge-os/send_engagement_summary.sh\n\nIf output is not empty, send to +919179611575 via WhatsApp.",
+    "message": "Generate today's engagement summary. Run: bash /Users/vb/.openclaw/workspace/knowledge-os/scripts/send_engagement_summary.sh\n\nIf output is not empty, send to +919179611575 via WhatsApp.",
     "timeoutSeconds": 60
   }
 }
@@ -172,7 +172,7 @@ fi
 ### 4. Test Manually ✅
 ```bash
 cd /Users/vb/.openclaw/workspace/knowledge-os
-venv/bin/python engagement_summary.py
+venv/bin/python -m knowledge_os.engagement_summary
 ```
 
 ---
@@ -182,7 +182,7 @@ venv/bin/python engagement_summary.py
 ```
 knowledge-os/
 ├── engagement_summary.py       # Summary generator
-├── send_engagement_summary.sh  # Delivery wrapper
+├── scripts/send_engagement_summary.sh  # Delivery wrapper
 ├── engagement.py               # Main engagement module
 ├── process_digest.py           # Digest pipeline
 ├── dashboard.py                # Local Streamlit observability UI
@@ -302,7 +302,7 @@ python3 engagement_summary.py
 
 ### 3. Test Delivery
 ```bash
-bash send_engagement_summary.sh
+bash scripts/send_engagement_summary.sh
 ```
 
 **Expected:** Summary text or nothing

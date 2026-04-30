@@ -18,10 +18,9 @@
 - Instant feedback without typing
 
 **Technical Notes:**
-- Infrastructure already built:
-  - `feedback_handler.py` - SQLite storage for feedback
-  - `hn_feedback.db` - Feedback tracking database
-  - `digest_metadata.json` - Story metadata export
+- The old feedback-button prototype was removed during cleanup.
+- Current feedback/read tracking flows through `sync_reading_log.py` and the main `feedback` table in `hn_digest_v2.db`.
+- `digest_metadata.json` is still exported by `process_digest.py` as a lightweight bridge for future interactive feedback.
 - Button callback format: `hn_like:{story_id}`, `hn_save:{story_id}`, `hn_skip:{story_id}`
 - Feedback patterns used to tune semantic matching weights
 
@@ -33,9 +32,9 @@
 **Implementation Path:**
 1. Setup WhatsApp Business API account
 2. Integrate with OpenClaw (check if supported or build plugin)
-3. Update `send_digest_agent.py` to use Business API button format
+3. Add a new Business API sender/callback module
 4. Test button delivery and callback handling
-5. Connect callbacks to existing `feedback_handler.py`
+5. Connect callbacks to the main SQLite feedback event log
 
 **References:**
 - WhatsApp Business API Docs: https://developers.facebook.com/docs/whatsapp/
@@ -55,8 +54,8 @@ Show patterns from feedback data:
 - Engagement trends over time
 
 **Files:**
-- `feedback_handler.py` already has `get_feedback_stats()` function
-- Build simple CLI or web view
+- Build analytics on top of the main `feedback` table in `hn_digest_v2.db`
+- Add either a dashboard panel or a simple CLI report
 
 ---
 

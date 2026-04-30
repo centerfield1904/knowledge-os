@@ -1,7 +1,7 @@
 """Tests for process_digest.py pure functions"""
 import pytest
 from datetime import datetime, timedelta
-from process_digest import (
+from knowledge_os.process_digest import (
     _extract_first_sentence,
     _extract_keywords,
     _filter_by_age,

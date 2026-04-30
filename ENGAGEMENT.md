@@ -234,7 +234,7 @@ CREATE TABLE engagement_stats (
 ## Next Steps
 
 1. **Add opportunity detection to `process_digest.py`** (basic filters first)
-2. **Update digest format** in `send_digest.py` (add engagement section)
+2. **Update digest format** in `process_digest.py` / `digest_formatter.py` (add engagement section)
 3. **Track engagement** in SQLite (record when you comment)
 4. **Iterate on scoring** based on what opportunities you actually engage with
 5. **Weekly review** - what worked, what didn't

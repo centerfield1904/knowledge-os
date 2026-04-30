@@ -42,27 +42,66 @@ Curates stories from Hacker News and Substack RSS feeds, matches them to your in
 ## Quick Start
 
 ```bash
+# Install/update dependencies
+venv/bin/python -m pip install -e . -r requirements.txt
+
+# Install test dependencies
+venv/bin/python -m pip install -r requirements-dev.txt
+
 # Run full digest pipeline
-bash run_digest_v2.sh
+bash scripts/run_digest_v2.sh
 
 # Fetch and store only (no digest generation — for 6-hour cron)
-bash run_digest_v2.sh --fetch-only
+bash scripts/run_digest_v2.sh --fetch-only
 
-# Run tests (131 tests; integration tests require DB and are excluded in CI)
+# Run tests (integration tests require DB and are excluded in CI)
 venv/bin/python -m pytest tests/ -v -m "not integration"
 
 # Sync read items from a digest file
-venv/bin/python sync_reading_log.py knos-digest/YYYY-MM-DD.md
+venv/bin/python -m knowledge_os.sync_reading_log knos-digest/YYYY-MM-DD.md
 
 # Weekly trending topics summary
-venv/bin/python weekly_summary.py
+venv/bin/python -m knowledge_os.weekly_summary
 
 # Generate engagement summary
-venv/bin/python engagement_summary.py
+venv/bin/python -m knowledge_os.engagement_summary
 
 # Run local dashboard
-venv/bin/python -m streamlit run dashboard.py
+venv/bin/python -m streamlit run src/knowledge_os/dashboard.py
 ```
+
+---
+
+## Current Code Summary
+
+The active production path is `scripts/run_digest_v2.sh`:
+
+1. `src/knowledge_os/fetch_stories.py` fetches Hacker News top stories.
+2. `src/knowledge_os/fetch_substack.py` fetches configured Substack RSS feeds when `feedparser` is installed and the feed/source is due.
+3. The shell script merges both outputs into `all_stories.json`.
+4. `src/knowledge_os/process_digest.py` filters by age and source frequency, scores stories with `TopicMatcher`, stores item/topic/author/digest records in SQLite, enriches stories with HN comment summaries and author karma, detects engagement opportunities, and writes digest text.
+5. `scripts/run_digest_v2.sh` writes `digest.txt`, archives raw stories under `archive/YYYY-MM-DD_stories.json`, archives the digest under `archive/YYYY-MM-DD_digest.txt`, and copies the markdown-ready digest to `knos-digest/YYYY-MM-DD.md`.
+
+The main runtime modules are:
+
+| Area | Current Files | Notes |
+|------|---------------|-------|
+| Fetching | `src/knowledge_os/fetch_stories.py`, `src/knowledge_os/fetch_substack.py` | HN is required; Substack depends on configured feeds and `feedparser`. |
+| Matching | `src/knowledge_os/match_topics.py` | Loads `all-MiniLM-L6-v2`, computes topic embeddings, and attaches `matched_topic`, `topic_score`, and `all_topic_scores`. |
+| Processing | `src/knowledge_os/process_digest.py`, `src/knowledge_os/digest_pipeline.py`, `src/knowledge_os/digest_formatter.py`, `src/knowledge_os/digest_filters.py` | CLI wrapper, orchestration, formatting, and filters are split. |
+| Storage | `src/knowledge_os/storage_interface.py`, `src/knowledge_os/storage_sqlite.py` | SQLite is the implemented backend. Postgres is only a future interface target. |
+| Engagement | `src/knowledge_os/engagement.py`, `src/knowledge_os/engagement_summary.py` | Detects Ask/Show HN, early threads, debates, syncs `vb7132` comments, and generates engagement reports. |
+| Read tracking | `src/knowledge_os/sync_reading_log.py` | Parses checked digest items and records `read` / `read_with_note` feedback. |
+| Dashboard | `src/knowledge_os/dashboard.py` | Streamlit observability/config UI. |
+| Output | `digest.txt`, `archive/`, `knos-digest/` | `knos-digest/YYYY-MM-DD.md` is the best artifact to review or publish. |
+
+Legacy/experimental scripts were removed from the active tree:
+
+- The broken v1 runner (`run_digest.sh`) and its wrapper (`send_digest.py`) are gone.
+- The older WhatsApp feedback-button experiment files are gone.
+- Historical engagement integration code/docs are gone.
+
+For daily operation, prefer `scripts/run_digest_v2.sh` and the files under `knos-digest/`.
 
 ---
 
@@ -70,8 +109,8 @@ venv/bin/python -m streamlit run dashboard.py
 
 | Source | Fetcher | Config Key | Marker |
 |--------|---------|------------|--------|
-| Hacker News | `fetch_stories.py` (API) | `sources.hackernews` | (none) |
-| Substack | `fetch_substack.py` (RSS) | `sources.substack.feeds` | 📰 |
+| Hacker News | `src/knowledge_os/fetch_stories.py` (API) | `sources.hackernews` | (none) |
+| Substack | `src/knowledge_os/fetch_substack.py` (RSS) | `sources.substack.feeds` | 📰 |
 
 Stories from all sources share a uniform schema (`id`, `title`, `url`, `score`, `by`, `time`, `descendants`, `text`, `source`, `published_at`) and go through the same semantic matching pipeline.
 
@@ -79,7 +118,7 @@ Stories from all sources share a uniform schema (`id`, `title`, `url`, `score`, 
 
 ## Digest Format
 
-Each story and engagement opportunity has an inline checkbox for read tracking. Mark `[x]` and add notes directly below any item, then run `sync_reading_log.py` to record to the DB.
+Each story and engagement opportunity has an inline checkbox for read tracking. Mark `[x]` and add notes directly below any item, then run `venv/bin/python -m knowledge_os.sync_reading_log knos-digest/YYYY-MM-DD.md` to record to the DB.
 
 Weekday digest — topic-grouped:
 ```
@@ -126,16 +165,16 @@ _A quieter read for the weekend._
 ## Pipeline Components
 
 ### Fetching
-- **`fetch_stories.py`** — HN top stories API, concurrent requests, filters by score (default 50+)
-- **`fetch_substack.py`** — RSS feeds via `feedparser`, config-driven feed list, stable IDs from URL hash; feeds accept per-feed `frequency` overrides as `{"url": "...", "frequency": "weekly"}` dicts
+- **`src/knowledge_os/fetch_stories.py`** — HN top stories API, concurrent requests, filters by score (default 50+)
+- **`src/knowledge_os/fetch_substack.py`** — RSS feeds via `feedparser`, config-driven feed list, stable IDs from URL hash; feeds accept per-feed `frequency` overrides as `{"url": "...", "frequency": "weekly"}` dicts
 
-### Matching (`match_topics.py`)
+### Matching (`src/knowledge_os/match_topics.py`)
 - Sentence-transformer embeddings (`all-MiniLM-L6-v2`)
 - Topics defined in `config.json` with keyword lists and weights
 - Configurable similarity threshold (default 0.3)
 - `score_all_stories()` — scores all fetched stories without threshold filtering (used by weekend mode for the Interesting Reads pool)
 
-### Engagement Detection (`engagement.py`)
+### Engagement Detection (`src/knowledge_os/engagement.py`)
 - **Ask/Show HN** — explicit feedback requests (score 0.75+)
 - **Early threads** — <10 comments, <6h old (score 0.55+)
 - **Hot debates** — 50+ comments, active (score 0.45+)
@@ -143,28 +182,27 @@ _A quieter read for the weekend._
 - Auto-syncs `vb7132`'s HN comments to track engagement
 - `fetch_user_karma(username)` — fetches HN karma per author for digest display
 
-### Storage (`storage_sqlite.py`)
+### Storage (`src/knowledge_os/storage_sqlite.py`)
 - SQLite via abstract `StorageInterface` (swappable to Postgres)
 - Tables: `users`, `topics`, `items`, `item_topic_scores`, `authors`, `digests`, `feedback`, `engagement_opportunities`, `user_comments`, `engagement_stats`
 - `items.published_at` (ISO 8601) tracks original publication date; on re-fetch, if `published_at` is newer than stored, the item re-surfaces in the digest
 
-### Read Tracking (`sync_reading_log.py`)
+### Read Tracking (`src/knowledge_os/sync_reading_log.py`)
 - Parses checked `[x]` items from digest markdown files
 - Collects multi-line notes below each item
 - Strips emoji prefixes (📰, 💬, 🔥, 🎯) to match titles in DB
 - Records `read` or `read_with_note` feedback
 
 ### Delivery
-- **`send_digest.py`** — WhatsApp via OpenClaw gateway
-- **`run_digest_v2.sh`** — full pipeline: fetch all sources, merge, process, archive
-- **`daily_digest.sh`** — cron wrapper (2 PM)
-- **`engagement_summary.py`** — morning reflection (9 AM)
+- **`scripts/run_digest_v2.sh`** — full pipeline: fetch all sources, merge, process, archive to `archive/` and `knos-digest/`
+- **`scripts/daily_digest.sh`** — cron wrapper for the v2 pipeline; OpenClaw/cron handles message delivery outside Python
+- **`src/knowledge_os/engagement_summary.py`** — engagement reflection report
 
-### Dashboard (`dashboard.py`)
+### Dashboard (`src/knowledge_os/dashboard.py`)
 Local Streamlit app for visibility into pipeline state, config management, and ad-hoc queries.
 
 ```bash
-venv/bin/python -m streamlit run dashboard.py
+venv/bin/python -m streamlit run src/knowledge_os/dashboard.py
 ```
 
 Six tabs:
@@ -240,31 +278,32 @@ knowledge-os/
 ├── config.example.json          # Template config
 ├── pytest.ini                   # pytest marker definitions
 │
-├── Pipeline
+├── src/knowledge_os/                # Python package
 │   ├── fetch_stories.py         # HN API fetcher
 │   ├── fetch_substack.py        # Substack RSS fetcher (per-feed frequency)
 │   ├── match_topics.py          # Semantic topic matcher + score_all_stories()
-│   ├── process_digest.py        # Main orchestration, digest formatting, weekend mode
+│   ├── process_digest.py        # CLI wrapper and compatibility exports
+│   ├── digest_pipeline.py       # Main orchestration
+│   ├── digest_formatter.py      # Digest text rendering
+│   ├── digest_filters.py        # Age/frequency/weekend filters
 │   ├── engagement.py            # Engagement detection, comment tracking, karma fetch
+│   ├── engagement_summary.py    # Engagement summary generator
 │   ├── sync_reading_log.py      # Parse read items from digest markdown
-│   └── weekly_summary.py        # Weekly trending topics report
-│
-├── Storage
-│   ├── storage_interface.py     # Abstract base class
+│   ├── storage_interface.py     # Abstract storage interface
 │   ├── storage_sqlite.py        # SQLite implementation
-│   └── hn_digest_v2.db          # Database (gitignored)
+│   ├── weekly_summary.py        # Weekly trending topics report
+│   └── dashboard.py             # Streamlit UI
 │
-├── Delivery
+├── scripts/
 │   ├── run_digest_v2.sh         # Full pipeline (--fetch-only for 6h cron)
 │   ├── daily_digest.sh          # Cron wrapper (2 PM digest)
-│   ├── send_digest.py           # WhatsApp sender
-│   ├── engagement_summary.py    # Morning summary generator
-│   └── send_engagement_summary.sh
+│   ├── send_engagement_summary.sh
+│   └── test_engagement.sh
 │
 ├── CI
 │   └── .github/workflows/tests.yml  # GitHub Actions — unit tests on push/PR
 │
-├── Tests (131 tests)
+├── Tests
 │   ├── tests/test_process_digest.py       # unit
 │   ├── tests/test_storage.py              # unit
 │   ├── tests/test_engagement.py           # unit
@@ -290,29 +329,29 @@ knowledge-os/
 
 ```bash
 # Digest: 2 PM daily
-0 14 * * * /Users/vb/.openclaw/workspace/knowledge-os/daily_digest.sh
+0 14 * * * /Users/vb/.openclaw/workspace/knowledge-os/scripts/daily_digest.sh
 
 # Fetch-only: every 6 hours (keeps DB fresh for weekend mode Interesting Reads)
-0 */6 * * * bash /Users/vb/.openclaw/workspace/knowledge-os/run_digest_v2.sh --fetch-only
+0 */6 * * * bash /Users/vb/.openclaw/workspace/knowledge-os/scripts/run_digest_v2.sh --fetch-only
 
 # Weekly summary: Monday 9 AM
-0 9 * * 1 /Users/vb/.openclaw/workspace/knowledge-os/venv/bin/python /Users/vb/.openclaw/workspace/knowledge-os/weekly_summary.py
+0 9 * * 1 /Users/vb/.openclaw/workspace/knowledge-os/venv/bin/python -m knowledge_os.weekly_summary
 
 # Engagement summary: 9 AM daily
-0 9 * * * /Users/vb/.openclaw/workspace/knowledge-os/send_engagement_summary.sh
+0 9 * * * /Users/vb/.openclaw/workspace/knowledge-os/scripts/send_engagement_summary.sh
 ```
 
 ---
 
 ## Tech Stack
 
-- **Python 3.11** with `venv/` (packages via `uv`)
+- **Python 3.9+** with `venv/`
 - **sentence-transformers** (`all-MiniLM-L6-v2`) for semantic matching
 - **feedparser** for Substack RSS
 - **SQLite 3** for storage
 - **HN Firebase API** for story fetching
 - **OpenClaw** for WhatsApp delivery
-- **pytest** for testing (131 tests, `tmp_path` fixtures, `integration` marker)
+- **pytest** for testing via `requirements-dev.txt` (`tmp_path` fixtures, `integration` marker)
 
 ---
 
@@ -323,13 +362,13 @@ knowledge-os/
 - **Digest format** — comment count replaced with author HN karma (`karma: N`); top comment's first sentence shown as 💬 blurb instead of keyword extraction
 - **Followed HN users** — `followed_hn_users` config list; followed users get ⭐ in digest regardless of story count; add/remove via dashboard
 - **Per-feed Substack frequency** — individual feeds can override the source-level frequency with `{"url": "...", "frequency": "weekly"}`
-- **Weekly summary** — `weekly_summary.py` reports last 7 days of matched stories by topic
+- **Weekly summary** — `src/knowledge_os/weekly_summary.py` reports last 7 days of matched stories by topic
 - **GitHub Actions CI** — `.github/workflows/tests.yml` runs unit tests on push/PR; integration tests marked and excluded
-- **`run_digest_v2.sh --fetch-only`** — fetches and stores without generating a digest (for 6-hour cron)
+- **`scripts/run_digest_v2.sh --fetch-only`** — fetches and stores without generating a digest (for 6-hour cron)
 
 **2026-03-03:** published_at tracking, 52 Substack feeds, Browse tab, age filter
 - All stories now carry `published_at` (ISO 8601); HN from `time` field, Substack from `updated_parsed` or `published_parsed`
-- `storage_sqlite.py`: if a re-fetched URL has a newer `published_at`, record is updated and story re-surfaces in the digest
+- `src/knowledge_os/storage_sqlite.py`: if a re-fetched URL has a newer `published_at`, record is updated and story re-surfaces in the digest
 - `max_age_days` config setting (default 7) filters stories before matching — prevents old Substack backlog from flooding the digest
 - 52 Substack feeds added from TSPC community CSV
 - Dashboard **Browse** tab: card-based reading view, filter by topic/source/date range, grouped by publication date
@@ -338,7 +377,7 @@ knowledge-os/
 - Substack RSS fetcher with config-driven feeds and 📰 source indicator
 - Inline checkboxes + notes on every story and engagement item (removed separate Read Tracker section)
 - Pipeline integration test (end-to-end with mocked externals)
-- Fixed `run_digest_v2.sh` to use `venv/bin/python`
+- Fixed `scripts/run_digest_v2.sh` to use `venv/bin/python`
 
 **2026-02-20:** Engagement detection + digest archive
 - 5 opportunities/day (Ask/Show HN, early threads, debates)

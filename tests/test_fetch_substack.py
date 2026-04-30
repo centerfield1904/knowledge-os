@@ -2,7 +2,7 @@
 import pytest
 from datetime import datetime
 from unittest.mock import patch, MagicMock
-from fetch_substack import _stable_id, fetch_feed, fetch_all_feeds, _feed_is_due
+from knowledge_os.fetch_substack import _stable_id, fetch_feed, fetch_all_feeds, _feed_is_due
 
 
 class TestStableId:
@@ -35,7 +35,7 @@ class TestFetchFeed:
         # Make it behave like a feedparser entry (dict-like with .get)
         return type("Entry", (), {"get": lambda self, k, d=None: entry.get(k, d)})()
 
-    @patch("fetch_substack.feedparser")
+    @patch("knowledge_os.fetch_substack.feedparser")
     def test_basic_fetch(self, mock_fp):
         entry = self._make_entry()
         mock_fp.parse.return_value = self._make_feed([entry])
@@ -49,7 +49,7 @@ class TestFetchFeed:
         assert "published_at" in stories[0]
         assert stories[0]["published_at"]  # non-empty
 
-    @patch("fetch_substack.feedparser")
+    @patch("knowledge_os.fetch_substack.feedparser")
     def test_max_items_respected(self, mock_fp):
         entries = [self._make_entry(link=f"https://example.com/{i}") for i in range(20)]
         mock_fp.parse.return_value = self._make_feed(entries)
@@ -57,7 +57,7 @@ class TestFetchFeed:
         stories = fetch_feed("https://test.substack.com/feed", max_items=3)
         assert len(stories) == 3
 
-    @patch("fetch_substack.feedparser")
+    @patch("knowledge_os.fetch_substack.feedparser")
     def test_entry_without_link_skipped(self, mock_fp):
         entry = self._make_entry(link="")
         mock_fp.parse.return_value = self._make_feed([entry])
@@ -75,7 +75,7 @@ class TestFetchAllFeeds:
         config = {}
         assert fetch_all_feeds(config) == []
 
-    @patch("fetch_substack.fetch_feed")
+    @patch("knowledge_os.fetch_substack.fetch_feed")
     def test_merges_multiple_feeds(self, mock_fetch):
         mock_fetch.return_value = [{"id": 1, "title": "Post"}]
         config = {
@@ -91,7 +91,7 @@ class TestFetchAllFeeds:
         assert len(result) == 2
         assert mock_fetch.call_count == 2
 
-    @patch("fetch_substack.fetch_feed")
+    @patch("knowledge_os.fetch_substack.fetch_feed")
     def test_failed_feed_continues(self, mock_fetch):
         mock_fetch.side_effect = [Exception("Network error"), [{"id": 2, "title": "OK"}]]
         config = {
@@ -128,7 +128,7 @@ class TestFeedIsDue:
 
 
 class TestFetchAllFeedsPerFeedFrequency:
-    @patch("fetch_substack.fetch_feed")
+    @patch("knowledge_os.fetch_substack.fetch_feed")
     def test_dict_feed_fetched(self, mock_fetch):
         mock_fetch.return_value = [{"id": 1, "title": "Post"}]
         config = {
@@ -144,8 +144,8 @@ class TestFetchAllFeedsPerFeedFrequency:
         assert len(result) == 1
         mock_fetch.assert_called_once_with("https://a.substack.com/feed", max_items=5)
 
-    @patch("fetch_substack.fetch_feed")
-    @patch("fetch_substack._feed_is_due", return_value=False)
+    @patch("knowledge_os.fetch_substack.fetch_feed")
+    @patch("knowledge_os.fetch_substack._feed_is_due", return_value=False)
     def test_skipped_when_not_due(self, mock_due, mock_fetch):
         config = {
             "sources": {

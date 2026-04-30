@@ -6,19 +6,19 @@ Multi-source digest pipeline that fetches stories from HN and Substack RSS, matc
 
 ```bash
 # Run full digest pipeline
-bash run_digest_v2.sh
+bash scripts/run_digest_v2.sh
 
 # Run tests
 venv/bin/python -m pytest tests/ -v
 
 # Sync reading log from a digest file
-venv/bin/python sync_reading_log.py knos-digest/YYYY-MM-DD.md
+venv/bin/python -m knowledge_os.sync_reading_log knos-digest/YYYY-MM-DD.md
 
 # Run engagement summary
-venv/bin/python engagement_summary.py
+venv/bin/python -m knowledge_os.engagement_summary
 
 # Run local dashboard
-venv/bin/python -m streamlit run dashboard.py
+venv/bin/python -m streamlit run src/knowledge_os/dashboard.py
 ```
 
 ## Environment

@@ -94,11 +94,11 @@ class TestPipelineIntegration:
         mock_detector.save_opportunities.return_value = None
         mock_detector.sync_user_comments.return_value = None
 
-        with patch("process_digest.TopicMatcher", return_value=mock_matcher), \
-             patch("process_digest.EngagementDetector", return_value=mock_detector), \
-             patch("process_digest.ENGAGEMENT_ENABLED", True):
+        with patch("knowledge_os.process_digest.TopicMatcher", return_value=mock_matcher), \
+             patch("knowledge_os.process_digest.EngagementDetector", return_value=mock_detector), \
+             patch("knowledge_os.process_digest.ENGAGEMENT_ENABLED", True):
 
-            from process_digest import process_stories, generate_digest_text
+            from knowledge_os.process_digest import process_stories, generate_digest_text
 
             result = process_stories(sample_stories, config)
 
@@ -131,11 +131,11 @@ class TestPipelineIntegration:
         mock_matcher = MagicMock()
         mock_matcher.match_stories.side_effect = _fake_match_stories
 
-        with patch("process_digest.TopicMatcher", return_value=mock_matcher), \
-             patch("process_digest.ENGAGEMENT_ENABLED", False):
+        with patch("knowledge_os.process_digest.TopicMatcher", return_value=mock_matcher), \
+             patch("knowledge_os.process_digest.ENGAGEMENT_ENABLED", False):
 
-            from process_digest import process_stories
-            from storage_sqlite import SQLiteStorage
+            from knowledge_os.process_digest import process_stories
+            from knowledge_os.storage_sqlite import SQLiteStorage
 
             result = process_stories(sample_stories, config)
 
@@ -151,11 +151,11 @@ class TestPipelineIntegration:
         mock_matcher = MagicMock()
         mock_matcher.match_stories.side_effect = _fake_match_stories
 
-        with patch("process_digest.TopicMatcher", return_value=mock_matcher), \
-             patch("process_digest.ENGAGEMENT_ENABLED", False):
+        with patch("knowledge_os.process_digest.TopicMatcher", return_value=mock_matcher), \
+             patch("knowledge_os.process_digest.ENGAGEMENT_ENABLED", False):
 
-            from process_digest import process_stories
-            from storage_sqlite import SQLiteStorage
+            from knowledge_os.process_digest import process_stories
+            from knowledge_os.storage_sqlite import SQLiteStorage
 
             result = process_stories(sample_stories, config)
 
@@ -170,10 +170,10 @@ class TestPipelineIntegration:
         mock_matcher = MagicMock()
         mock_matcher.match_stories.return_value = []
 
-        with patch("process_digest.TopicMatcher", return_value=mock_matcher), \
-             patch("process_digest.ENGAGEMENT_ENABLED", False):
+        with patch("knowledge_os.process_digest.TopicMatcher", return_value=mock_matcher), \
+             patch("knowledge_os.process_digest.ENGAGEMENT_ENABLED", False):
 
-            from process_digest import process_stories, generate_digest_text
+            from knowledge_os.process_digest import process_stories, generate_digest_text
 
             result = process_stories([], config)
             assert result["stories"] == []
@@ -200,10 +200,10 @@ class TestPipelineIntegration:
             "published_at": "2020-01-01T00:00:00",
         }
 
-        with patch("process_digest.TopicMatcher", return_value=mock_matcher), \
-             patch("process_digest.ENGAGEMENT_ENABLED", False):
+        with patch("knowledge_os.process_digest.TopicMatcher", return_value=mock_matcher), \
+             patch("knowledge_os.process_digest.ENGAGEMENT_ENABLED", False):
 
-            from process_digest import process_stories
+            from knowledge_os.process_digest import process_stories
 
             result = process_stories([old_story], config)
             # Old story should be filtered before matching — matcher never called
@@ -230,11 +230,11 @@ class TestPipelineIntegration:
         mock_matcher.match_stories.return_value = [matched]
         mock_matcher.score_all_stories.return_value = [(matched, 0.85), (interesting, 0.25)]
 
-        with patch("process_digest.TopicMatcher", return_value=mock_matcher), \
-             patch("process_digest.ENGAGEMENT_ENABLED", False), \
-             patch("process_digest._is_weekend", return_value=True):
+        with patch("knowledge_os.process_digest.TopicMatcher", return_value=mock_matcher), \
+             patch("knowledge_os.process_digest.ENGAGEMENT_ENABLED", False), \
+             patch("knowledge_os.process_digest._is_weekend", return_value=True):
 
-            from process_digest import process_stories
+            from knowledge_os.process_digest import process_stories
 
             first = process_stories(sample_stories, config)
             assert [story["title"] for story in first["stories"]] == [

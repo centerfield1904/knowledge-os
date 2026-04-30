@@ -87,17 +87,17 @@ For the highest-scored 3 opportunities, system:
 ### Test engagement module
 ```bash
 cd /Users/vb/.openclaw/workspace/knowledge-os
-./test_engagement.sh
+scripts/test_engagement.sh
 ```
 
 ### Test full digest pipeline
 ```bash
-./run_digest_v2.sh
+scripts/run_digest_v2.sh
 ```
 
 ### Check engagement stats
 ```bash
-python3 engagement.py
+venv/bin/python -m knowledge_os.engagement
 ```
 
 Output:
@@ -112,7 +112,7 @@ Total comments posted: 8
 
 ### Manual weekly report (Mondays)
 ```bash
-python3 engagement.py
+venv/bin/python -m knowledge_os.engagement
 ```
 
 ---
@@ -186,18 +186,18 @@ Review: March 20, 2026
 ## Files
 
 **Core:**
-- `engagement.py` — Detection, tracking, comment sync
-- `engagement_summary.py` — Daily reflection report
-- `process_digest.py` — Main pipeline (integration point)
+- `src/knowledge_os/engagement.py` — Detection, tracking, comment sync
+- `src/knowledge_os/engagement_summary.py` — Daily reflection report
+- `src/knowledge_os/process_digest.py` — Main pipeline (integration point)
 - `hn_digest_v2.db` — SQLite storage
 
 **Observability:**
-- `dashboard.py` — Streamlit UI (`streamlit run dashboard.py`)
+- `src/knowledge_os/dashboard.py` — Streamlit UI (`venv/bin/python -m streamlit run src/knowledge_os/dashboard.py`)
 
 **Documentation:**
 - `ENGAGEMENT_PLAN.md` — This file
 - `ENGAGEMENT.md` — Full strategy
-- `INTEGRATION_GUIDE.md` — Historical integration notes
+- Historical integration notes were removed during cleanup; `engagement.py` is the source of truth
 - `NEXT.md` — Roadmap
 
 **Testing:**
@@ -216,12 +216,12 @@ Review: March 20, 2026
 
 ## Next Steps
 
-1. ✅ **Run test:** `./test_engagement.sh`
+1. ✅ **Run test:** `scripts/test_engagement.sh`
 2. ✅ **Review output:** Check digest format, opportunities
 3. ✅ **Adjust if needed:** Scoring, volume, prompts
 4. ✅ **Go live:** Daily digest at 2 PM (running since Feb 20)
 5. **Engage with 1:** Test the workflow this week
-6. **Weekly review:** Check stats via dashboard or `venv/bin/python engagement.py`
+6. **Weekly review:** Check stats via dashboard or `venv/bin/python -m knowledge_os.engagement`
 
 ---
 

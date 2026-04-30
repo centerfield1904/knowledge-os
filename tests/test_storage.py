@@ -1,6 +1,6 @@
 """Tests for SQLite storage with temp file DB"""
 import pytest
-from storage_sqlite import SQLiteStorage
+from knowledge_os.storage_sqlite import SQLiteStorage
 
 
 @pytest.fixture

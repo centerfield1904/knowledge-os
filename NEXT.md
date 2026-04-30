@@ -21,7 +21,7 @@
 - [x] **Per-feed frequency for Substack** — COMPLETE (2026-03-07: feeds accept `{"url": "...", "frequency": "..."}` dicts; `_feed_is_due()` in `fetch_substack.py`; string feeds inherit source-level frequency)
 - [x] **Dashboard Config tab: frequency editor** — COMPLETE (2026-03-07: per-feed frequency via dict format in config; dashboard Followed HN Users and Weekend Mode expanders added)
 - [x] **Interesting content** — COMPLETE (2026-03-07: Weekend Mode — stricter topic threshold for Best Matches + high-score Interesting Reads section; configurable via dashboard Config tab "Weekend Mode" expander)
-- [x] **week summary** — COMPLETE (2026-03-07: `weekly_summary.py` queries last 7 days by topic; `run_digest_v2.sh --fetch-only` for 6-hour cron; add `0 */6 * * * bash run_digest_v2.sh --fetch-only` and `0 9 * * 1 python weekly_summary.py` to crontab)
+- [x] **week summary** — COMPLETE (2026-03-07: `src/knowledge_os/weekly_summary.py` queries last 7 days by topic; `scripts/run_digest_v2.sh --fetch-only` for 6-hour cron; add `0 */6 * * * bash scripts/run_digest_v2.sh --fetch-only` and `0 9 * * 1 venv/bin/python -m knowledge_os.weekly_summary` to crontab)
 - [x] **Change what is shown** — COMPLETE (2026-03-07: comment count removed; author HN karma shown as `karma: N`; top comment first sentence shown as 💬 blurb)
 - [x] **Option to manually add or remove HN users that I follow** — COMPLETE (2026-03-07: `followed_hn_users` in config; followed users get ⭐ in digest; dashboard Config tab "Followed HN Users" expander)
 - [ ] For every comment on HN or substack, assess the objective quality: why it was good or bad
@@ -388,4 +388,3 @@ If you paste your current folder structure or your `config.json` schema (just th
 * the minimal DB schema changes
 * the ranking formula (with continuity + novelty)
 * the WhatsApp interaction pattern (how users reply to record feedback)
-

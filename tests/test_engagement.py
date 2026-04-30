@@ -3,7 +3,7 @@ import pytest
 import tempfile
 import os
 from datetime import datetime
-from engagement import EngagementDetector, format_engagement_section
+from knowledge_os.engagement import EngagementDetector, format_engagement_section
 
 
 @pytest.fixture

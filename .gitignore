@@ -4,6 +4,11 @@ config.json
 # Generated output
 digest.txt
 stories_raw.json
+substack_raw.json
+all_stories.json
+digest_metadata.json
+archive/*_stories.json
+archive/*_digest.txt
 *.db
 
 # Python

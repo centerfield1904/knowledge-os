@@ -1,7 +1,7 @@
 """Tests for sync_reading_log.py"""
 import pytest
-from sync_reading_log import parse_read_items, _lookup_item_id
-from storage_sqlite import SQLiteStorage
+from knowledge_os.sync_reading_log import parse_read_items, _lookup_item_id
+from knowledge_os.storage_sqlite import SQLiteStorage
 
 
 SAMPLE_DIGEST = """\
