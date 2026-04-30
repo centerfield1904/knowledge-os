@@ -100,6 +100,12 @@ if ! $FETCH_ONLY; then
     ARCHIVE_END=$(date +%s)
     ARCHIVE_DURATION=$((ARCHIVE_END - ARCHIVE_START))
     log_step "✓ Archived in ${ARCHIVE_DURATION}s"
+
+    log_step "📤 Pushing digest to GitHub..."
+    git -C "$DIR" add "knos-digest/${DATE}.md"
+    git -C "$DIR" diff --cached --quiet || git -C "$DIR" commit -m "digest: ${DATE}"
+    git -C "$DIR" push origin HEAD
+    log_step "✓ Digest pushed"
 fi
 
 END_TIME=$(date +%s)
