@@ -385,6 +385,21 @@ class SQLiteStorage(StorageInterface):
             feedback.append(fb)
         return feedback
     
+    def get_undelivered_item_ids(self, item_ids: list) -> set:
+        """Return the subset of item_ids that have never been delivered in a digest."""
+        if not item_ids:
+            return set()
+        conn = self._get_conn()
+        c = conn.cursor()
+        placeholders = ",".join("?" * len(item_ids))
+        c.execute(
+            f"SELECT item_id FROM feedback WHERE action = 'delivered' AND item_id IN ({placeholders})",
+            item_ids,
+        )
+        delivered = {row["item_id"] for row in c.fetchall()}
+        conn.close()
+        return set(item_ids) - delivered
+
     # Authors
     def upsert_author(self, user_id: int, author_name: str, item_id: int,
                       topic_scores: Dict[str, float]):

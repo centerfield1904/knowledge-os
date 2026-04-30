@@ -4,7 +4,7 @@ Storage interface abstraction for HN digest system
 Supports SQLite (current) and Postgres (future)
 """
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Set, Tuple
 from datetime import datetime
 import json
 
@@ -73,6 +73,11 @@ class StorageInterface(ABC):
     @abstractmethod
     def get_feedback(self, user_id: int, item_id: Optional[int] = None) -> List[Dict]:
         """Get feedback history"""
+        pass
+
+    @abstractmethod
+    def get_undelivered_item_ids(self, item_ids: List[int]) -> Set[int]:
+        """Return the subset of item_ids that have never been delivered in a digest."""
         pass
     
     # Authors

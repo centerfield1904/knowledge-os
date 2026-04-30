@@ -10,8 +10,10 @@ cd "$PROJECT_ROOT"
 PYTHON="$PROJECT_ROOT/venv/bin/python"
 export PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 FETCH_ONLY=false
+PUSH=false
 for arg in "$@"; do
     if [ "$arg" = "--fetch-only" ]; then FETCH_ONLY=true; fi
+    if [ "$arg" = "--push" ]; then PUSH=true; fi
 done
 
 # Logging with timestamps
@@ -97,15 +99,27 @@ if ! $FETCH_ONLY; then
     cp stories_raw.json "$STORIES_ARCHIVE"
     cp digest.txt "$DIGEST_ARCHIVE"
     cp digest.txt "$DIGEST_MD"
+
+    # Mark stories as delivered now that archive succeeded
+    if [ -f ".last_digest_id" ]; then
+        DIGEST_ID=$(cat .last_digest_id)
+        $PYTHON -m knowledge_os.process_digest --mark-delivered "$DIGEST_ID"
+        log_step "✓ Digest $DIGEST_ID marked delivered"
+    fi
+
     ARCHIVE_END=$(date +%s)
     ARCHIVE_DURATION=$((ARCHIVE_END - ARCHIVE_START))
     log_step "✓ Archived in ${ARCHIVE_DURATION}s"
 
-    log_step "📤 Pushing digest to GitHub..."
-    git -C "$DIR" add "knos-digest/${DATE}.md"
-    git -C "$DIR" diff --cached --quiet || git -C "$DIR" commit -m "digest: ${DATE}"
-    git -C "$DIR" push origin HEAD
-    log_step "✓ Digest pushed"
+    if $PUSH; then
+        log_step "📤 Pushing digest to GitHub..."
+        git add "knos-digest/${DATE}.md"
+        git diff --cached --quiet || git commit -m "digest: ${DATE}"
+        git push origin HEAD
+        log_step "✓ Digest pushed"
+    else
+        log_step "ℹ️  Skipping push (pass --push to enable)"
+    fi
 fi
 
 END_TIME=$(date +%s)

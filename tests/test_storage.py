@@ -169,6 +169,32 @@ class TestFeedback:
         fb = storage.get_feedback(user_id)
         assert len(fb) == 3
 
+    def test_get_undelivered_item_ids(self, storage, user_id):
+        id1, _ = storage.insert_item(url="https://ud1.com", title="U1",
+                                     source="hn", author="a", score=1,
+                                     fetched_at="2026-01-01",
+                                     published_at="2026-01-01T12:00:00")
+        id2, _ = storage.insert_item(url="https://ud2.com", title="U2",
+                                     source="hn", author="a", score=1,
+                                     fetched_at="2026-01-01",
+                                     published_at="2026-01-01T12:00:00")
+        id3, _ = storage.insert_item(url="https://ud3.com", title="U3",
+                                     source="hn", author="a", score=1,
+                                     fetched_at="2026-01-01",
+                                     published_at="2026-01-01T12:00:00")
+        storage.insert_feedback(user_id, id1, "delivered")
+        # id2 has only a non-delivery action — still counts as undelivered
+        storage.insert_feedback(user_id, id2, "read")
+        # id3 has no feedback at all
+
+        result = storage.get_undelivered_item_ids([id1, id2, id3])
+        assert id1 not in result
+        assert id2 in result
+        assert id3 in result
+
+    def test_get_undelivered_empty_input(self, storage):
+        assert storage.get_undelivered_item_ids([]) == set()
+
 
 class TestAuthors:
     def test_upsert_new(self, storage):

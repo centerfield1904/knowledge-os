@@ -88,11 +88,10 @@ def process_stories(stories: List[Dict], config: Dict) -> Dict:
 
     _log(f"Storing {len(stories_to_store)} stories in database...")
     db_start = time.time()
-    item_ids = []
-    new_story_urls = set()
+    url_to_item_id = {}
 
     for story in stories_to_store:
-        item_id, is_new = storage.insert_item(
+        item_id, _ = storage.insert_item(
             url=story["url"],
             title=story["title"],
             source=story.get("source", "hackernews"),
@@ -119,20 +118,22 @@ def process_stories(stories: List[Dict], config: Dict) -> Dict:
             topic_scores=story["all_topic_scores"],
         )
 
-        if is_new:
-            item_ids.append(item_id)
-            new_story_urls.add(story["url"])
+        url_to_item_id[story["url"]] = item_id
+
+    undelivered_ids = storage.get_undelivered_item_ids(list(url_to_item_id.values()))
+    undelivered_urls = {url for url, iid in url_to_item_id.items() if iid in undelivered_ids}
+    item_ids = [iid for iid in url_to_item_id.values() if iid in undelivered_ids]
 
     if weekend_mode_active and all_scored_stories is not None:
         all_scored_stories = [
             (story, sim) for story, sim in all_scored_stories
-            if story["url"] in new_story_urls
+            if story["url"] in undelivered_urls
         ]
         display_stories = [story for story, _ in all_scored_stories]
     else:
-        display_stories = [story for story in matched_stories if story["url"] in new_story_urls]
+        display_stories = [story for story in matched_stories if story["url"] in undelivered_urls]
 
-    _log(f"Database storage completed in {time.time() - db_start:.1f}s ({len(display_stories)} new)")
+    _log(f"Database storage completed in {time.time() - db_start:.1f}s ({len(display_stories)} undelivered)")
 
     authors_start = time.time()
     notable_authors = storage.get_notable_authors(

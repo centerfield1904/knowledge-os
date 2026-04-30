@@ -147,7 +147,7 @@ class TestPipelineIntegration:
                 assert item["source"] == "hackernews"
 
     def test_feedback_recorded(self, config, sample_stories):
-        """Verify 'delivered' feedback is recorded for each story."""
+        """Verify 'delivered' feedback is recorded only after mark_digest_delivered."""
         mock_matcher = MagicMock()
         mock_matcher.match_stories.side_effect = _fake_match_stories
 
@@ -161,9 +161,17 @@ class TestPipelineIntegration:
 
             storage = SQLiteStorage(db_path=config["storage"]["sqlite"]["db_path"])
             user_id = storage.get_or_create_user(config["user"]["identifier"])
-            feedback = storage.get_feedback(user_id)
-            delivered = [f for f in feedback if f["action"] == "delivered"]
-            assert len(delivered) == len(result["item_ids"])
+
+            # No delivered feedback yet — archive hasn't been confirmed
+            feedback_before = storage.get_feedback(user_id)
+            delivered_before = [f for f in feedback_before if f["action"] == "delivered"]
+            assert len(delivered_before) == 0
+
+            # After marking delivered, feedback is recorded
+            storage.mark_digest_delivered(result["digest_id"])
+            feedback_after = storage.get_feedback(user_id)
+            delivered_after = [f for f in feedback_after if f["action"] == "delivered"]
+            assert len(delivered_after) == len(result["item_ids"])
 
     def test_empty_stories(self, config):
         """Pipeline handles empty story list gracefully."""
@@ -236,12 +244,18 @@ class TestPipelineIntegration:
 
             from knowledge_os.process_digest import process_stories
 
+            from knowledge_os.storage_sqlite import SQLiteStorage
+
             first = process_stories(sample_stories, config)
             assert [story["title"] for story in first["stories"]] == [
                 "New Transformer Architecture Beats GPT-5",
                 "Stoicism and Software Engineering",
             ]
             assert len(first["item_ids"]) == 2
+
+            # Simulate successful archive — mark delivered before re-running
+            storage = SQLiteStorage(db_path=config["storage"]["sqlite"]["db_path"])
+            storage.mark_digest_delivered(first["digest_id"])
 
             second = process_stories(sample_stories, config)
             assert second["stories"] == []
