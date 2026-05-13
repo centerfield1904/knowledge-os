@@ -31,6 +31,9 @@ My first instinct was to ask Mikey "what topics do you care about?" — which fr
 **Over-engineering delivery for user #1**
 I almost built email infrastructure (SMTP, app passwords, env vars) before asking what "delivery" actually meant for Mikey. The answer was: a markdown link on WhatsApp. Two minutes of work, not two hours. The lesson is to ask "what does receiving this value look like?" before picking a delivery mechanism.
 
+**Architecture should protect product iteration**
+The four-module split is not an engineering cleanliness exercise. It keeps product changes cheap: scraping can run on its own, topic scoring can change without delivering a digest, users can subscribe to global topics without forking the catalog, and feedback can improve ranking without mutating source data. The product benefit is faster iteration on taste without making every run do every expensive step.
+
 ---
 
 ## Questions I'm Sitting With

@@ -2,190 +2,273 @@
 
 ## Overview
 
-`knowledge-os` is a local digest pipeline that fetches stories from Hacker News and optional Substack RSS feeds, filters them against an explicit interest profile, stores continuity data in SQLite, and writes a daily markdown digest.
+`knowledge-os` is a local knowledge briefing system built around four independent modules:
 
-Current implementation:
+1. **Catalog/Ingestion** - scrapers update static content tables.
+2. **Topic Scoring** - configurable scoring calculates item-topic matches.
+3. **Subscriptions/Digests** - users subscribe to scored topics through filters; digest generation reads precomputed data.
+4. **Feedback/Engagement** - user-per-item events are recorded centrally.
 
-- One active runtime config: `config.json`.
-- One active SQLite backend: `hn_digest_v2.db` by default.
-- One digest artifact per date: `knos-digest/YYYY-MM-DD.md`.
-- A storage schema that is partially multi-user-ready: users, topics, feedback, digests, and user-author stats all carry `user_id`.
-- Pipeline entrypoint: `scripts/run_digest_v2.sh`.
+Language ownership:
 
-Not implemented yet:
+- **Scala** owns high-throughput concurrent ingestion and digest selection/ranking.
+- **Python** owns ML topic scoring, scoring customizability, feedback parsing, and flexible rendering/analysis.
+- Cross-language integration happens through SQLite tables, not direct runtime calls.
 
-- Persona catalog and persona-resolved user configs.
-- Per-user runner/output directories.
-- Postgres backend.
-- External-user dashboard or link tracking.
+The key architectural rule is separation of runs:
 
-## Core Principles
+- Running a scraper updates `items` and `authors`; it does not score topics or generate digests.
+- Running topic scoring updates `item_topic_scores`; it does not scrape or generate digests.
+- Running digest generation creates a new `digest_id`; it does not scrape or score.
+- Recording feedback writes user/item events; it does not mutate catalog or scoring outputs.
 
-1. **Explicit interests** - Topics and keywords come from config, not inferred behavior.
-2. **Daily cadence** - The system optimizes for a quiet daily briefing, not a real-time feed.
-3. **Storage abstraction** - Runtime code uses `StorageInterface`; SQLite is the only implemented backend today.
-4. **Event log feedback** - Delivery/read actions are recorded as feedback events.
-5. **Local-first operation** - Generated files, SQLite, dashboard, and scripts are designed for local cron/OpenClaw workflows.
+Current code still combines several of these concerns inside the digest path. This document describes the target architecture to migrate toward, even where it differs from the current implementation.
 
-## Runtime Flow
+## Module Boundaries
+
+```mermaid
+flowchart LR
+    ingestion["Catalog / Ingestion<br/>scrapers"]
+    scoring["Topic Scoring<br/>matching runs"]
+    subscriptions["Subscriptions / Digests<br/>selection + rendering"]
+    feedback["Feedback / Engagement<br/>user-item events"]
+
+    items[("items")]
+    authors[("authors")]
+    content[("item_content")]
+    topics[("topics")]
+    scores[("item_topic_scores")]
+    users[("users")]
+    subs[("user_topic_subscriptions")]
+    digests[("digests + digest_items")]
+    events[("feedback")]
+
+    ingestion --> items
+    ingestion --> authors
+    ingestion --> content
+    items --> scoring
+    authors --> scoring
+    content --> scoring
+    topics --> scoring
+    scoring --> scores
+    users --> subscriptions
+    subs --> subscriptions
+    items --> subscriptions
+    authors --> subscriptions
+    scores --> subscriptions
+    subscriptions --> digests
+    subscriptions --> events
+    feedback --> events
+    events --> subscriptions
+```
+
+### Catalog / Ingestion
+
+Owns static content and author state.
+
+Inputs:
+
+- Source configuration: Hacker News, Substack, and future sources.
+- Raw source payloads from fetchers/scrapers.
+
+Outputs:
+
+- `items`: canonical content rows deduped by `items.url`.
+- `authors`: static or cached author metadata and aggregate source-level stats.
+- `item_content`: separate content fragments such as comments, extracted body text, summaries, and source-specific annotations.
+
+Rules:
+
+- `items.url` is the dedupe key for content identity.
+- Scrapers may update item metadata such as title, score, source, author, `published_at`, `fetched_at`, `external_id`, and raw text fields.
+- Extra content such as comments is stored separately in `item_content`; it is not folded permanently into the canonical item row.
+- Scraper runs do not read user subscriptions and do not create digests.
+- Author updates are catalog concerns, not digest concerns.
+
+### Topic Scoring
+
+Owns the configurable logic that turns topics and catalog items into scores.
+
+Inputs:
+
+- `items`
+- `authors`
+- `topics`
+- topic scoring configuration
+
+Outputs:
+
+- `item_topic_scores`
+- optional scoring-run metadata for auditability and recomputation
+
+Rules:
+
+- Topics are configurable definitions, not user subscriptions.
+- Every score is tied to an item, a topic, and the scoring configuration used.
+- Historical scores are retained by `scoring_config_id`; a new scoring config writes a new score set instead of replacing older configs.
+- Scoring configuration decides which content fields participate: title, URL text, item body, comments, author metadata, source metadata, or future embeddings.
+- Scoring can be triggered by new items, topic changes, scoring-config changes, or manual recomputation.
+- Digest generation must never trigger topic scoring implicitly.
+
+### Subscriptions / Digests
+
+Owns user-specific selection from already-scored content.
+
+Inputs:
+
+- `users`
+- `user_topic_subscriptions`
+- `items`
+- `authors`
+- `topics`
+- `item_topic_scores`
+- `feedback`
+
+Outputs:
+
+- `digests`
+- `digest_items`
+- `feedback` rows for delivery events
+
+Rules:
+
+- A user subscribes to topics through filter configuration.
+- Subscription filters can include topic score threshold, author allow/deny lists, source filters, freshness windows, maximum items, already-delivered suppression, and digest cadence.
+- Each `generate_digest` run creates a new `digest_id`.
+- Digest generation only reads catalog/scoring data; it does not scrape and does not score.
+- Digest membership is explicit in `digest_items`; do not rely only on JSON item lists.
+- Scala owns selection and ranking only. Markdown rendering can remain Python-owned.
+
+### Feedback / Engagement
+
+Owns user-per-item event tracking.
+
+Inputs:
+
+- Digest delivery events.
+- Read tracking.
+- Click/save/skip/share actions.
+- Engagement outcomes such as comments or replies.
+
+Outputs:
+
+- `feedback` event rows.
+- optional engagement summary tables or views.
+
+Rules:
+
+- Feedback is scoped to `(user_id, item_id, action, created_at)`.
+- Feedback can be used by digest selection as an input, but it does not belong to ingestion or topic scoring.
+- Engagement-specific tables can exist, but they should produce or consume common feedback events instead of becoming a parallel feedback model.
+
+## Data Lifecycle
+
+### Scraper Run
 
 ```mermaid
 flowchart TD
-    runner["scripts/run_digest_v2.sh"]
-    hn["knowledge_os.fetch_stories<br/>HN Firebase API"]
-    substack["knowledge_os.fetch_substack<br/>Substack RSS"]
-    raw_hn["stories_raw.json"]
-    raw_substack["substack_raw.json"]
-    merged["all_stories.json"]
-    process["knowledge_os.process_digest"]
-    pipeline["digest_pipeline.process_stories"]
-    formatter["digest_formatter.generate_digest_text"]
-    digest_txt["digest.txt"]
-    archive_stories["archive/YYYY-MM-DD_stories.json"]
-    archive_digest["archive/YYYY-MM-DD_digest.txt"]
-    digest_md["knos-digest/YYYY-MM-DD.md"]
-    delivery["OpenClaw / cron<br/>WhatsApp delivery"]
+    source_cfg["source config"]
+    fetch["fetch / scrape sources"]
+    normalize["normalize source payloads"]
+    upsert_items["upsert items<br/>dedupe by url"]
+    upsert_authors["upsert authors"]
+    upsert_content["upsert item_content<br/>comments / body / summaries"]
+    done["catalog updated"]
 
-    runner --> hn --> raw_hn
-    runner --> substack --> raw_substack
-    raw_hn --> merged
-    raw_substack --> merged
-    merged --> process --> pipeline --> formatter --> digest_txt
-    digest_txt --> archive_digest
-    raw_hn --> archive_stories
-    digest_txt --> digest_md --> delivery
+    source_cfg --> fetch --> normalize
+    normalize --> upsert_items --> done
+    normalize --> upsert_authors --> done
+    normalize --> upsert_content --> done
 ```
 
-### Fetch
-
-- `src/knowledge_os/fetch_stories.py` fetches top Hacker News stories through the Firebase API.
-- `src/knowledge_os/fetch_substack.py` fetches configured Substack RSS feeds when `sources.substack.enabled` is present and true.
-- Both fetchers normalize into the shared story shape: `id`, `title`, `url`, `score`, `by`, `time`, `descendants`, `text`, `source`, `fetched_at`, and `published_at`.
-
-### Process
-
-`src/knowledge_os/process_digest.py` loads `config.json`, reads `all_stories.json`, calls `digest_pipeline.process_stories`, then renders markdown with `digest_formatter.generate_digest_text`.
-
-`src/knowledge_os/digest_pipeline.py` performs the main orchestration:
+### Topic Scoring Run
 
 ```mermaid
 flowchart TD
-    input["stories + config"]
-    age["Filter by settings.max_age_days"]
-    frequency["Filter by source frequency<br/>when sources is configured"]
-    storage["Initialize storage<br/>get_storage"]
-    user["Get/create configured user"]
-    topics["Load topics<br/>insert only when user has none"]
-    match["TopicMatcher<br/>all-MiniLM-L6-v2"]
-    persist["Store items, scores,<br/>and user-author stats"]
-    gate["Suppress delivered items<br/>get_undelivered_item_ids"]
-    digest["Insert digest row<br/>and delivered feedback"]
-    enrich["Fetch HN comment summaries<br/>and author karma"]
-    engagement["Detect engagement opportunities<br/>sync HN comments"]
-    result["Return render-ready result"]
+    scoring_cfg["topic scoring config"]
+    topics["topics"]
+    items["items"]
+    authors["authors"]
+    content["item_content"]
+    field_select["select configured fields<br/>title / text / comments / author metadata"]
+    model["score item-topic pair"]
+    scores["upsert item_topic_scores"]
 
-    input --> age --> frequency --> storage --> user --> topics --> match --> persist --> gate --> digest --> enrich --> engagement --> result
+    scoring_cfg --> field_select
+    topics --> model
+    items --> field_select --> model
+    authors --> field_select
+    content --> field_select
+    model --> scores
 ```
 
-The important current limitation is topic sync: configured topics are inserted only when the user has no topics yet, so later config edits do not reliably update existing topic rows.
+### Digest Run
 
-### Render And Deliver
+```mermaid
+flowchart TD
+    user["user"]
+    subscriptions["user_topic_subscriptions"]
+    scores["item_topic_scores"]
+    items["items"]
+    authors["authors"]
+    feedback["feedback"]
+    select["apply subscription filters"]
+    create_digest["create digest_id"]
+    digest_items["write digest_items"]
+    delivered["write delivered feedback"]
+    render["render digest"]
 
-- Weekday digest output is grouped by matched topic.
-- Weekend mode, when enabled, renders “Best Matches” and “Interesting Reads”.
-- Each story has an inline checkbox and `Notes:` line for read tracking.
-- Python does not send WhatsApp directly. OpenClaw/cron consumes the generated output.
-
-### Post-Delivery Tools
-
-- `sync_reading_log.py` parses checked markdown items and writes `read` or `read_with_note` feedback.
-- `engagement_summary.py` summarizes recent engagement data for the local HN user.
-- `weekly_summary.py` summarizes matched stories from the last seven days.
-- `dashboard.py` runs a local Streamlit dashboard against `hn_digest_v2.db` and `config.json`.
-
-## Configuration
-
-The active runtime path is still a single `config.json`. `config.example.json` documents the minimum shape:
-
-```json
-{
-  "storage": {
-    "backend": "sqlite",
-    "sqlite": { "db_path": "hn_digest_v2.db" },
-    "postgres": {
-      "host": "localhost",
-      "port": 5432,
-      "database": "hn_digest",
-      "user": "postgres",
-      "password": ""
-    }
-  },
-  "user": {
-    "identifier": "+910000000000",
-    "timezone": "Asia/Calcutta"
-  },
-  "topics": [
-    {
-      "name": "AI/ML/LLMs",
-      "keywords": ["artificial intelligence", "machine learning"],
-      "weight": 1.0
-    }
-  ],
-  "settings": {
-    "max_stories": 30,
-    "min_score": 50,
-    "similarity_threshold": 0.3,
-    "digest_time": "14:00",
-    "track_authors": true,
-    "track_continuity": true,
-    "notable_author_threshold": 3
-  }
-}
+    user --> subscriptions --> select
+    scores --> select
+    items --> select
+    authors --> select
+    feedback --> select
+    select --> create_digest --> digest_items --> delivered --> render
 ```
 
-The code also supports an optional `sources` section used by Substack and source-frequency filtering:
+### Feedback Sync
 
-```json
-{
-  "sources": {
-    "hackernews": { "enabled": true, "frequency": "daily" },
-    "substack": {
-      "enabled": true,
-      "frequency": "daily",
-      "feeds": [
-        "https://example.substack.com/feed",
-        { "url": "https://weekly.example.com/feed", "frequency": "weekly" }
-      ],
-      "max_items": 10
-    }
-  }
-}
+```mermaid
+flowchart TD
+    action["user action<br/>read / click / save / skip / share / comment"]
+    resolve["resolve user + item"]
+    event["insert feedback event"]
+    consumers["digest filters / engagement summaries"]
+
+    action --> resolve --> event --> consumers
 ```
 
-`sources` is not present in the current `config.example.json`, so new installs that need Substack should add it explicitly.
-
-## Storage Schema
-
-SQLite schema lives in `src/knowledge_os/storage_sqlite.py`. The storage interface lives in `src/knowledge_os/storage_interface.py`.
+## Target Storage Schema
 
 ```mermaid
 erDiagram
-    USERS ||--o{ TOPICS : owns
-    USERS ||--o{ FEEDBACK : records
+    AUTHORS ||--o{ ITEMS : authors
+    ITEMS ||--o{ ITEM_CONTENT : has_extra_content
+    ITEMS ||--o{ ITEM_TOPIC_SCORES : scored
+    TOPICS ||--o{ ITEM_TOPIC_SCORES : scored_against
+    TOPIC_SCORING_CONFIGS ||--o{ ITEM_TOPIC_SCORES : produced_by
+
+    USERS ||--o{ USER_TOPIC_SUBSCRIPTIONS : configures
+    TOPICS ||--o{ USER_TOPIC_SUBSCRIPTIONS : subscribed_to
     USERS ||--o{ DIGESTS : receives
-    USERS ||--o{ USER_AUTHORS : tracks
-    USERS ||--o{ USER_AUTHOR_ITEMS : dedupes
+    DIGESTS ||--o{ DIGEST_ITEMS : contains
+    ITEMS ||--o{ DIGEST_ITEMS : selected
 
-    ITEMS ||--o{ ITEM_TOPIC_SCORES : scored_against
-    TOPICS ||--o{ ITEM_TOPIC_SCORES : receives_scores
-    ITEMS ||--o{ FEEDBACK : has_events
-    ITEMS ||--o{ USER_AUTHOR_ITEMS : counted_once
+    USERS ||--o{ FEEDBACK : records
+    ITEMS ||--o{ FEEDBACK : receives
+    DIGESTS ||--o{ FEEDBACK : delivery_context
 
-    USERS {
-        integer user_id PK
-        text identifier UK
-        text settings
-        text created_at
+    AUTHORS {
+        integer author_id PK
+        text source
+        text external_author_id
+        text author_name
+        text profile_url
+        integer story_count
+        real total_score
+        text metadata_json
+        text first_seen
+        text last_seen
     }
 
     ITEMS {
@@ -193,171 +276,261 @@ erDiagram
         text url UK
         text title
         text source
-        text author
+        text external_id
+        integer author_id FK
+        text author_name
         integer score
+        integer comment_count
+        text item_text
         text fetched_at
         text published_at
-        text external_id
+        text updated_at
+        text metadata_json
+    }
+
+    ITEM_CONTENT {
+        integer content_id PK
+        integer item_id FK
+        text content_type
+        text content_text
+        text source
+        text metadata_json
+        text created_at
     }
 
     TOPICS {
         integer topic_id PK
-        integer user_id FK
         text name
-        text keywords
-        real weight
+        text description
+        text keywords_json
+        real default_weight
+        boolean active
+        text created_at
         text updated_at
+    }
+
+    TOPIC_SCORING_CONFIGS {
+        integer scoring_config_id PK
+        text name
+        text model
+        text content_fields_json
+        text scoring_params_json
+        boolean active
+        text created_at
     }
 
     ITEM_TOPIC_SCORES {
         integer item_id PK
         integer topic_id PK
+        integer scoring_config_id PK
         real score
+        text evidence_json
         text computed_at
+    }
+
+    USERS {
+        integer user_id PK
+        text identifier UK
+        text timezone
+        text settings_json
+        text created_at
+    }
+
+    USER_TOPIC_SUBSCRIPTIONS {
+        integer subscription_id PK
+        integer user_id FK
+        integer topic_id FK
+        real min_topic_score
+        text author_filter_json
+        text source_filter_json
+        integer freshness_days
+        integer max_items
+        boolean suppress_delivered
+        boolean active
+        text created_at
+        text updated_at
+    }
+
+    DIGESTS {
+        integer digest_id PK
+        integer user_id FK
+        text generated_at
+        text status
+        text metadata_json
+    }
+
+    DIGEST_ITEMS {
+        integer digest_id PK
+        integer item_id PK
+        integer topic_id
+        real topic_score
+        integer rank
+        text selection_reason_json
     }
 
     FEEDBACK {
         integer feedback_id PK
         integer user_id FK
         integer item_id FK
+        integer digest_id FK
         text action
-        text metadata
+        text metadata_json
         text created_at
     }
-
-    DIGESTS {
-        integer digest_id PK
-        integer user_id FK
-        text item_ids
-        text sent_at
-        text metadata
-    }
-
-    USER_AUTHORS {
-        integer user_id PK
-        text author_name PK
-        integer story_count
-        real total_score
-        text topics
-        text last_seen
-    }
-
-    USER_AUTHOR_ITEMS {
-        integer user_id PK
-        text author_name PK
-        integer item_id PK
-    }
 ```
 
-Core storage notes:
+### Schema Notes
 
-- `items.url` is globally unique. Re-fetching a URL with a newer `published_at` updates the row and can re-surface it.
-- `topics` are user-scoped and unique by `(user_id, name)`.
-- `item_topic_scores` records semantic similarity for each stored item/topic pair.
-- `feedback` is the event log for `delivered`, `read`, `read_with_note`, and future actions.
-- `digests.item_ids` stores the delivered item list as JSON text.
-- `authors` still exists as an older global table. Current author continuity uses `user_authors` and `user_author_items`.
+- `items` and `authors` are catalog tables. They are not user-specific.
+- `topics` are global scoring definitions. User preference lives in `user_topic_subscriptions`.
+- `topic_scoring_configs.content_fields_json` defines whether scoring uses only title or includes item text, `item_content` rows such as comments, author metadata, source metadata, or other extracted fields.
+- `item_topic_scores` is a computed table. Historical scores are retained by `(item_id, topic_id, scoring_config_id)`, and it should be safe to delete/recompute one scoring config at a time.
+- `digests` is the digest run header. `digest_items` is the immutable membership list for that run.
+- `feedback` is the common event log for delivery, reading, clicks, saves, skips, shares, and engagement outcomes.
 
-### Engagement Schema
+## Configuration Model
 
-`src/knowledge_os/engagement.py` owns engagement-specific tables. They are intentionally separate from the storage interface today.
+Configuration should be split by module so a digest run does not need scraper or scoring decisions.
 
-```mermaid
-erDiagram
-    ENGAGEMENT_OPPORTUNITIES ||--o| USER_COMMENTS : may_be_satisfied_by
-    ENGAGEMENT_STATS ||--o{ ENGAGEMENT_OPPORTUNITIES : summarizes
+### Source Config
 
-    ENGAGEMENT_OPPORTUNITIES {
-        integer id PK
-        integer story_id
-        text detected_date
-        text opportunity_type
-        real score
-        text action_prompt
-        boolean engaged
-        text engagement_date
-        integer comment_id
-        integer karma_gained
+Controls only ingestion.
+
+```json
+{
+  "sources": {
+    "hackernews": { "enabled": true, "min_score": 50, "max_items": 90 },
+    "substack": {
+      "enabled": true,
+      "feeds": ["https://example.substack.com/feed"],
+      "max_items_per_feed": 10
     }
-
-    USER_COMMENTS {
-        integer comment_id PK
-        integer story_id
-        text comment_text
-        text posted_at
-        text synced_at
-    }
-
-    ENGAGEMENT_STATS {
-        text date PK
-        integer opportunities_detected
-        integer opportunities_engaged
-        integer total_karma_gained
-        integer comments_posted
-    }
+  }
+}
 ```
 
-## Storage Interface
+### Topic Scoring Config
 
-Current interface responsibilities:
+Controls scoring logic and content inputs.
 
-```python
-storage = get_storage(
-    backend=config["storage"]["backend"],
-    **config["storage"][config["storage"]["backend"]]
-)
+```json
+{
+  "topic_scoring": {
+    "config_name": "title_author_comments_v1",
+    "model": "all-MiniLM-L6-v2",
+    "content_fields": ["title", "item_text", "comment_summary", "author_metadata"],
+    "similarity_threshold": 0.3
+  },
+  "topics": [
+    {
+      "name": "AI/ML/LLMs",
+      "keywords": ["large language models", "agents", "evals"],
+      "default_weight": 1.0
+    }
+  ]
+}
 ```
 
-- `sqlite` is implemented by `SQLiteStorage`.
-- `postgres` is referenced by the factory but `storage_postgres.py` is not implemented.
-- `insert_item` returns `(item_id, is_new)`. The pipeline now uses delivered-feedback gating for display, not `is_new`.
-- `get_undelivered_item_ids(item_ids)` currently checks delivery globally across all users. This is acceptable for today's single active config, but must become user-scoped before real multi-user runs.
+### User Subscription Config
 
-## Current Operational Commands
+Controls digest selection.
+
+```json
+{
+  "user": {
+    "identifier": "vb",
+    "timezone": "Asia/Calcutta"
+  },
+  "subscriptions": [
+    {
+      "topic": "AI/ML/LLMs",
+      "min_topic_score": 0.35,
+      "freshness_days": 7,
+      "sources": ["hackernews", "substack"],
+      "authors": { "allow": [], "deny": [] },
+      "max_items": 8,
+      "suppress_delivered": true
+    }
+  ],
+  "digest": {
+    "cadence": "daily",
+    "max_items": 20,
+    "format": "markdown"
+  }
+}
+```
+
+### Feedback Config
+
+Controls event ingestion and engagement summaries.
+
+```json
+{
+  "feedback": {
+    "read_tracking": true,
+    "click_tracking": false,
+    "engagement_sources": ["hn_comments"],
+    "actions": ["delivered", "read", "read_with_note", "clicked", "saved", "skipped", "shared", "commented"]
+  }
+}
+```
+
+## Target Runtime Commands
+
+These commands express the intended separation:
 
 ```bash
-# Run unit tests
-venv/bin/python -m pytest tests/ -v -m "not integration"
+# Ingestion only
+sbt "runMain knowledgeos.Ingest --db knowledge_os.db --sources config/sources.json"
 
-# Run all tests, including integration tests
-venv/bin/python -m pytest tests/ -v
+# Scoring only
+python -m knowledge_os.topic_scoring --db knowledge_os.db --config config/topic_scoring.json
 
-# Generate today's digest
-bash scripts/run_digest_v2.sh
+# Digest selection/ranking only
+python -m knowledge_os.subscriptions --db knowledge_os.db --config config/user.vb.json
+sbt "runMain knowledgeos.GenerateDigest --db knowledge_os.db --user vb --max-items 20"
 
-# Fetch and store only
-bash scripts/run_digest_v2.sh --fetch-only
-
-# Re-run today's digest after clearing generated artifacts and stale delivered feedback
-bash scripts/run_digest_v2.sh --rerun
-
-# Generate and push today's digest markdown
-bash scripts/run_digest_v2.sh --push
-
-# Sync checked read items from a digest file
-venv/bin/python -m knowledge_os.sync_reading_log knos-digest/YYYY-MM-DD.md
-
-# Run local dashboard
-venv/bin/python -m streamlit run src/knowledge_os/dashboard.py
+# Feedback sync only
+python -m knowledge_os.feedback_events --db knowledge_os.db --user vb --source knos-digest/vb/YYYY-MM-DD.md
 ```
 
-## Known Architecture Gaps
+## Implementation Status
 
-- **Persona model:** PM docs define persona IDs and canonical topic bundles, but no `personas/` catalog or resolver exists yet.
-- **Multi-user config:** Runtime still assumes one `config.json`; there is no `configs/users/` loader or `--user` CLI.
-- **Per-user outputs:** Runner writes to date-only archive and digest paths, so Kintu/Mikey/VB outputs would collide.
-- **Per-user storage:** Schema has `user_id`, but the active DB path is global and `get_undelivered_item_ids` is not user-scoped.
-- **Topic sync:** Topics are inserted only when a user has none. Config changes do not reliably update existing topic rows.
-- **Dashboard and summaries:** Dashboard, weekly summary, engagement summary, and reading-log sync all default to `hn_digest_v2.db` / `config.json`.
-- **Postgres:** Mentioned in config and factory, but no backend implementation exists.
+Implemented in this branch:
 
-## Next Architecture Direction
+- Target schema initializer: `python -m knowledge_os.schema --db knowledge_os.db`.
+- Python topic scoring command: `python -m knowledge_os.topic_scoring --db knowledge_os.db --config config/topic_scoring.example.json`.
+- Python subscription loader: `python -m knowledge_os.subscriptions --db knowledge_os.db --config config/user.vb.example.json`.
+- Python feedback event sync: `python -m knowledge_os.feedback_events --db knowledge_os.db --user vb --source knos-digest/YYYY-MM-DD.md`.
+- Scala catalog ingestion entry point: `sbt "runMain knowledgeos.Ingest --db knowledge_os.db --sources config/sources.example.json"`.
+- Scala digest selection/ranking entry point: `sbt "runMain knowledgeos.GenerateDigest --db knowledge_os.db --user vb --max-items 20"`.
+- Scala unit tests for item URL dedupe, author upsert, subscription filtering, digest membership writes, and delivered feedback.
+- Scala integration test for the catalog -> scoring -> subscription -> digest -> feedback flow over the target schema.
 
-The next planned architecture change is persona-driven multi-user SQLite:
+Verification commands:
 
-- Add a canonical persona catalog.
-- Add base and per-user config files.
-- Resolve personas plus `personal_topics` into the existing topic shape at runtime.
-- Generate isolated DBs and digest markdown files per user.
-- Make delivery suppression user-scoped.
-- Keep delivery as GitHub markdown URLs shared over WhatsApp until external-user behavior justifies more infrastructure.
+```bash
+scala -version
+sbt test
+venv/bin/python -m pytest tests/test_target_schema.py -q
+venv/bin/python -m pytest tests/ -q -m "not integration"
+```
+
+## Migration Notes
+
+Current implementation gaps relative to this architecture:
+
+- `scripts/run_digest_v2.sh` still fetches, merges, processes, scores, stores, renders, and archives in one legacy production path.
+- Legacy `digest_pipeline.py` still persists items and item-topic scores during digest generation; the new `GenerateDigest` path only reads precomputed scores and writes digest membership plus delivered feedback.
+- Legacy storage still has older topic/digest shapes; the target schema moves user preference to subscriptions and stores digest membership in `digest_items`.
+- Rendering remains Python-owned and still needs to consume Scala selection JSON or `digest_items`.
+- Engagement-specific summaries can remain, but event ingestion should converge on the common `feedback` table.
+
+Recommended migration order:
+
+1. Wire `scripts/run_digest_v2.sh` or a replacement runner to call the separated module commands in order.
+2. Make rendering consume `digest_items`/selection JSON instead of recomputing selection in Python.
+3. Move HN/Substack fetchers behind the Scala ingestion command, keeping source-specific extraction isolated.
+4. Expand `item_content` population for comments, extracted bodies, summaries, and source annotations.
+5. Retire legacy topic/digest writes once the modular path produces the daily digest end to end.
+6. Normalize engagement summaries to read/write common `feedback` events.

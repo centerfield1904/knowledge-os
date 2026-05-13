@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""CLI and compatibility exports for digest processing."""
+"""CLI and lightweight exports for digest processing."""
 import json
 import sys
 from pathlib import Path
 
 from . import digest_pipeline as _pipeline
+from .digest_context import build_digest_context
 from .digest_filters import (
     apply_weekend_mode as _apply_weekend_mode,
     filter_by_age as _filter_by_age,
@@ -17,13 +18,11 @@ from .digest_formatter import (
     generate_digest_text as _generate_digest_text,
     summarize_comments,
 )
-from .match_topics import TopicMatcher
 
 try:
-    from .engagement import EngagementDetector, format_engagement_section
+    from .engagement import format_engagement_section
     ENGAGEMENT_ENABLED = True
 except ImportError:
-    EngagementDetector = None
     format_engagement_section = None
     ENGAGEMENT_ENABLED = False
     print("Warning: Engagement module not available", file=sys.stderr)
@@ -35,19 +34,8 @@ def load_config(config_path: str = "config.json") -> dict:
         return json.load(f)
 
 
-def process_stories(stories, config):
-    """Compatibility wrapper around digest_pipeline.process_stories."""
-    _pipeline.TopicMatcher = TopicMatcher
-    _pipeline.EngagementDetector = EngagementDetector
-    _pipeline.ENGAGEMENT_ENABLED = ENGAGEMENT_ENABLED
-    _pipeline.filter_by_age = _filter_by_age
-    _pipeline.is_weekend = _is_weekend
-    _pipeline.source_is_due = _source_is_due
-    return _pipeline.process_stories(stories, config)
-
-
 def generate_digest_text(result, config=None, weekend_sections=None):
-    """Compatibility wrapper around digest_formatter.generate_digest_text."""
+    """Render digest text with the process module's engagement formatter."""
     return _generate_digest_text(
         result,
         config=config,
@@ -86,7 +74,8 @@ def main():
     else:
         stories = json.load(sys.stdin)
 
-    result = process_stories(stories, config)
+    context = build_digest_context(config)
+    result = _pipeline.process_stories(stories, context)
 
     wm = config.get("settings", {}).get("weekend_mode", {})
     weekend_sections = None

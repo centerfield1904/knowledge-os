@@ -9,6 +9,8 @@ all_stories.json
 digest_metadata.json
 archive/*_stories.json
 archive/*_digest.txt
+knos-digest/*.md
+!knos-digest/README.md
 *.db
 
 # Python
@@ -18,6 +20,12 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+
+# Scala / JVM
+target/
+.scala-build/
+.bsp/
+.metals/
 
 # OS
 .DS_Store

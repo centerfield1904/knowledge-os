@@ -8,34 +8,43 @@ Curates stories from Hacker News and Substack RSS feeds, matches them to your in
 
 ## How It Works
 
+The architecture is moving from a single digest pipeline to four independent modules connected by SQLite.
+
+```mermaid
+flowchart LR
+    ingest["Catalog / Ingestion<br/>Scala concurrent fetchers"]
+    scoring["Topic Scoring<br/>Python ML + config"]
+    digest["Subscriptions / Digests<br/>Scala selection + ranking"]
+    feedback["Feedback / Engagement<br/>Python event sync + summaries"]
+
+    items[("items")]
+    authors[("authors")]
+    content[("item_content")]
+    topics[("topics")]
+    scores[("item_topic_scores")]
+    subs[("user_topic_subscriptions")]
+    digests[("digests + digest_items")]
+    events[("feedback")]
+
+    ingest --> items
+    ingest --> authors
+    ingest --> content
+    items --> scoring
+    authors --> scoring
+    content --> scoring
+    topics --> scoring
+    scoring --> scores
+    subs --> digest
+    items --> digest
+    authors --> digest
+    scores --> digest
+    events --> digest
+    digest --> digests
+    digest --> events
+    feedback --> events
 ```
-┌──────────────┐  ┌────────────────┐
-│ fetch_stories│  │ fetch_substack │
-│   (HN API)   │  │   (RSS feeds)  │
-└──────┬───────┘  └───────┬────────┘
-       │                  │
-       └────────┬─────────┘
-                ▼
-       all_stories.json (merged)
-                │
-                ▼
-     ┌──────────────────┐      ┌─────────────┐
-     │  process_digest  │─────▶│  SQLite DB   │
-     │  (orchestrator)  │      │  (storage)   │
-     └────────┬─────────┘      └─────────────┘
-              │
-    ┌─────────┼──────────┐
-    ▼         ▼          ▼
- Topic     Author    Engagement
- Matching  Tracking  Detection
-    │         │          │
-    └─────────┼──────────┘
-              ▼
-     knos-digest/YYYY-MM-DD.md
-              │
-              ▼
-     WhatsApp delivery (2 PM)
-```
+
+Current production still supports `scripts/run_digest_v2.sh`; the new module commands are being added alongside it and are documented below.
 
 ---
 
@@ -47,6 +56,11 @@ uv pip install -e . -r requirements.txt --python venv/bin/python
 
 # Install test dependencies
 uv pip install -r requirements-dev.txt --python venv/bin/python
+
+# Scala toolchain for ingestion and digest selection/ranking
+brew install openjdk sbt scala
+export JAVA_HOME=/usr/local/opt/openjdk
+export PATH="/usr/local/opt/openjdk/bin:$PATH"
 
 # Run full digest pipeline
 bash scripts/run_digest_v2.sh
@@ -62,6 +76,17 @@ bash scripts/run_digest_v2.sh --push
 
 # Run tests (integration tests require DB and are excluded in CI)
 venv/bin/python -m pytest tests/ -v -m "not integration"
+sbt test
+
+# Initialize the target four-module schema
+venv/bin/python -m knowledge_os.schema --db knowledge_os.db
+
+# New modular commands
+sbt "runMain knowledgeos.Ingest --db knowledge_os.db --sources config/sources.example.json"
+venv/bin/python -m knowledge_os.topic_scoring --db knowledge_os.db --config config/topic_scoring.example.json
+venv/bin/python -m knowledge_os.subscriptions --db knowledge_os.db --config config/user.vb.example.json
+sbt "runMain knowledgeos.GenerateDigest --db knowledge_os.db --user vb --max-items 20"
+venv/bin/python -m knowledge_os.feedback_events --db knowledge_os.db --user vb --source knos-digest/YYYY-MM-DD.md
 
 # Sync read items from a digest file
 venv/bin/python -m knowledge_os.sync_reading_log knos-digest/YYYY-MM-DD.md
@@ -80,7 +105,7 @@ venv/bin/python -m streamlit run src/knowledge_os/dashboard.py
 
 ## Current Code Summary
 
-The active production path is `scripts/run_digest_v2.sh`:
+The current production path remains `scripts/run_digest_v2.sh`:
 
 1. `src/knowledge_os/fetch_stories.py` fetches Hacker News top stories.
 2. `src/knowledge_os/fetch_substack.py` fetches configured Substack RSS feeds when `feedparser` is installed and the feed/source is due.
@@ -99,7 +124,7 @@ The main runtime modules are:
 | Engagement | `src/knowledge_os/engagement.py`, `src/knowledge_os/engagement_summary.py` | Detects Ask/Show HN, early threads, debates, syncs `vb7132` comments, and generates engagement reports. |
 | Read tracking | `src/knowledge_os/sync_reading_log.py` | Parses checked digest items and records `read` / `read_with_note` feedback. |
 | Dashboard | `src/knowledge_os/dashboard.py` | Streamlit observability/config UI. |
-| Output | `digest.txt`, `archive/`, `knos-digest/` | `knos-digest/YYYY-MM-DD.md` is the best artifact to review or publish. |
+| Output | `digest.txt`, `archive/`, `knos-digest/` | Generated locally and ignored by git except for `knos-digest/README.md`. |
 
 Legacy/experimental scripts were removed from the active tree:
 
@@ -108,6 +133,15 @@ Legacy/experimental scripts were removed from the active tree:
 - Historical engagement integration code/docs are gone.
 
 For daily operation, prefer `scripts/run_digest_v2.sh` and the files under `knos-digest/`.
+
+The new modular path is intentionally split:
+
+| Module | Owner | Purpose |
+|--------|-------|---------|
+| Catalog / Ingestion | Scala | Concurrent source fetching, `items.url` dedupe, author and content upserts. |
+| Topic Scoring | Python | Configurable ML scoring, global topics, historical score sets by scoring config. |
+| Subscriptions / Digests | Scala + Python config loader | User-specific selection and ranking from precomputed scores; each run creates a new `digest_id`. |
+| Feedback / Engagement | Python | User-per-item event ingestion and engagement/read summaries. |
 
 ---
 
@@ -282,13 +316,29 @@ Full config shape:
 knowledge-os/
 ├── config.json                  # Topics, sources, settings (gitignored)
 ├── config.example.json          # Template config
+├── build.sbt                    # Scala build for ingestion + digest selection/ranking
 ├── pytest.ini                   # pytest marker definitions
+│
+├── config/
+│   ├── sources.example.json         # Ingestion config
+│   ├── topic_scoring.example.json   # Topic scoring config
+│   └── user.vb.example.json         # User subscription config
+│
+├── src/main/scala/knowledgeos/      # Scala package
+│   ├── Ingest.scala             # Catalog ingestion
+│   ├── GenerateDigest.scala     # Selection/ranking only
+│   ├── Db.scala                 # JDBC helpers
+│   └── Args.scala               # Small CLI parser
 │
 ├── src/knowledge_os/                # Python package
 │   ├── fetch_stories.py         # HN API fetcher
 │   ├── fetch_substack.py        # Substack RSS fetcher (per-feed frequency)
 │   ├── match_topics.py          # Semantic topic matcher + score_all_stories()
-│   ├── process_digest.py        # CLI wrapper and compatibility exports
+│   ├── schema.py                # Target four-module SQLite schema
+│   ├── topic_scoring.py         # Configurable ML topic scoring
+│   ├── subscriptions.py         # User subscription config loader
+│   ├── feedback_events.py       # Common feedback event ingestion
+│   ├── process_digest.py        # Legacy production CLI wrapper
 │   ├── digest_pipeline.py       # Main orchestration
 │   ├── digest_formatter.py      # Digest text rendering
 │   ├── digest_filters.py        # Age/frequency/weekend filters
@@ -303,13 +353,14 @@ knowledge-os/
 ├── scripts/
 │   ├── run_digest_v2.sh         # Full pipeline (--fetch-only for 6h cron)
 │   ├── daily_digest.sh          # Cron wrapper (2 PM digest)
-│   ├── send_engagement_summary.sh
-│   └── test_engagement.sh
+│   └── send_engagement_summary.sh
 │
 ├── CI
 │   └── .github/workflows/tests.yml  # GitHub Actions — unit tests on push/PR
 │
 ├── Tests
+│   ├── src/test/scala/knowledgeos/*Suite.scala # Scala unit + integration tests
+│   ├── tests/test_target_schema.py       # target schema/config/feedback tests
 │   ├── tests/test_process_digest.py       # unit
 │   ├── tests/test_storage.py              # unit
 │   ├── tests/test_engagement.py           # unit
@@ -318,14 +369,13 @@ knowledge-os/
 │   └── tests/test_pipeline_integration.py # integration (marked, excluded from CI)
 │
 ├── Output
-│   ├── knos-digest/YYYY-MM-DD.md   # Daily digest archive
-│   └── archive/                     # Raw story/digest archive
+│   ├── knos-digest/YYYY-MM-DD.md   # generated daily digest markdown (gitignored)
+│   └── archive/                     # generated raw story/digest archive
 │
 └── Docs
     ├── NEXT.md                  # Roadmap and decision log
     ├── CLAUDE.md                # AI assistant instructions
-    ├── ARCHITECTURE.md          # Schema and data flow reference
-    └── SAMPLE_OUTPUT.md         # Digest format examples
+    └── ARCHITECTURE.md          # Schema and data flow reference
 ```
 
 ---
@@ -351,16 +401,26 @@ knowledge-os/
 ## Tech Stack
 
 - **Python 3.9+** with `venv/`
+- **Scala 3** with `sbt` for concurrent ingestion and digest selection/ranking
+- **OpenJDK** for the Scala toolchain
 - **sentence-transformers** (`all-MiniLM-L6-v2`) for semantic matching
 - **feedparser** for Substack RSS
 - **SQLite 3** for storage
 - **HN Firebase API** for story fetching
 - **OpenClaw** for WhatsApp delivery
 - **pytest** for testing via `requirements-dev.txt` (`tmp_path` fixtures, `integration` marker)
+- **munit** for Scala tests
 
 ---
 
 ## Recent Updates
+
+**2026-05-13:** Four-module architecture implementation slice
+- Added target SQLite schema for catalog, separate content, global topics, historical topic scores, subscriptions, digest membership, and feedback events
+- Added Scala project with concurrent ingestion and digest selection/ranking entry points
+- Added Python modules for schema initialization, topic scoring, subscription loading, and feedback event sync
+- Added unit and integration coverage for Scala selection/ranking and the four-module DB flow
+- Verified `scala -version`, `sbt test`, and Python non-integration tests
 
 **2026-04-30:** Empty digest fix + pipeline reliability
 - `get_undelivered_item_ids` replaces `is_new` as the gate for what appears in the digest — a story is suppressed only after it has been delivered, not merely stored

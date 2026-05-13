@@ -1,0 +1,14 @@
+{
+  "sources": {
+    "hackernews": {
+      "enabled": true,
+      "min_score": 50,
+      "max_items": 90
+    },
+    "substack": {
+      "enabled": false,
+      "feeds": [],
+      "max_items_per_feed": 10
+    }
+  }
+}

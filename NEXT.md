@@ -2,6 +2,12 @@
 
 ## Immediate (This Week)
 
+- [x] **Install Scala and verify** — COMPLETE (2026-05-13: Homebrew OpenJDK, SBT, and Scala installed; verified `scala -version`; `sbt test` passes)
+- [x] **Split target architecture into four modules** — COMPLETE (2026-05-13: catalog/ingestion, topic scoring, subscriptions/digests, feedback/engagement documented in ARCHITECTURE.md)
+- [x] **Add target schema and modular commands** — COMPLETE (2026-05-13: `knowledge_os.schema`, `topic_scoring`, `subscriptions`, `feedback_events`; Scala `knowledgeos.Ingest` and `knowledgeos.GenerateDigest`)
+- [x] **Add Scala unit and integration tests** — COMPLETE (2026-05-13: URL dedupe, author upsert, subscription filtering, digest writes, delivered feedback, and full four-module DB flow)
+- [ ] **Wire modular runner** — Replace or supplement `scripts/run_digest_v2.sh` with a runner that calls ingestion, scoring, subscription loading, Scala selection/ranking, Python rendering, and feedback sync as separate steps.
+- [ ] **Make rendering consume `digest_items`** — Python rendering should read `digests`/`digest_items` or Scala selection JSON instead of recomputing topic matches during digest generation.
 - [x] **Engagement opportunity detection** - COMPLETE (Feb 20: 5 opps/day, username tracking, comment analysis)
 - [x] **Update digest format** - COMPLETE (🎯 Engagement Opportunities section added)
 - [x] **Engagement tracking schema** - COMPLETE (SQLite tables, auto comment sync)
@@ -54,6 +60,8 @@
 - [ ] **Logging & metrics** - Track story volume, match rates, delivery timing
 - [ ] **Backup & recovery** - SQLite backup strategy (daily? weekly?)
 - [ ] **Error handling** - Graceful degradation if HN API is down
+- [ ] **Scala ingestion source parity** - Bring Substack and any future source adapters into the catalog ingestion module without coupling them to scoring or rendering.
+- [ ] **Separate content enrichment** - Populate `item_content` for comments, extracted article bodies, summaries, and source annotations.
 
 ### Interactive Feedback
 - [ ] **WhatsApp Business API** — Migrate from Baileys to Business API for inline buttons per story (👍 Like | 📌 Save | 👎 Skip). Callbacks connect to the `feedback` table. `digest_metadata.json` is already exported as a bridge. Button format: `hn_like:{story_id}`, `hn_save:{story_id}`, `hn_skip:{story_id}`.
@@ -97,6 +105,7 @@
 **2026-02-11** - Initial architecture: semantic matching, SQLite continuity, WhatsApp delivery  
 **2026-02-13** - v2 migration: improved storage layer, better topic handling  
 **2026-04-30** - Fixed empty digest bug: `get_undelivered_item_ids` replaces `is_new` as the display gate; `--rerun` flag clears archive + stale feedback; `--push` flag makes git push opt-in  
+**2026-05-13** - Four-module architecture adopted: catalog, topic scoring, subscriptions/digests, and feedback are independent; Scala owns ingestion plus selection/ranking; Python owns ML scoring, config, rendering, and feedback parsing
 
 ---
 

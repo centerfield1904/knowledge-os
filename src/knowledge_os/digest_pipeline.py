@@ -5,10 +5,10 @@ import time
 from datetime import datetime
 from typing import Dict, List
 
+from .digest_context import DigestRunContext
 from .digest_filters import filter_by_age, is_weekend, source_is_due
 from .digest_formatter import summarize_comments
 from .match_topics import TopicMatcher
-from .storage_interface import get_storage
 
 try:
     from .engagement import EngagementDetector
@@ -22,8 +22,13 @@ def _log(message: str):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}", file=sys.stderr)
 
 
-def process_stories(stories: List[Dict], config: Dict) -> Dict:
+def process_stories(stories: List[Dict], context: DigestRunContext) -> Dict:
     """Process stories through filtering, matching, storage, and enrichment."""
+    config = context.config
+    storage = context.storage
+    user_id = context.user_id
+    topics = context.topics
+
     _log(f"Processing {len(stories)} stories...")
     start_time = time.time()
 
@@ -42,32 +47,7 @@ def process_stories(stories: List[Dict], config: Dict) -> Dict:
     ]
     _log(f"Frequency filter: {before} → {len(stories)} stories")
 
-    _log("Initializing storage...")
-    storage_start = time.time()
-    storage_config = config["storage"]
-    storage = get_storage(
-        backend=storage_config["backend"],
-        **storage_config.get(storage_config["backend"], {})
-    )
-    _log(f"Storage initialized in {time.time() - storage_start:.1f}s")
-
-    user_start = time.time()
-    user_id = storage.get_or_create_user(identifier=config["user"]["identifier"])
-    _log(f"User loaded in {time.time() - user_start:.1f}s")
-
-    topics_start = time.time()
-    existing_topics = storage.get_topics(user_id)
-    if not existing_topics:
-        _log("Creating topics...")
-        for topic in config["topics"]:
-            storage.insert_topic(
-                user_id=user_id,
-                name=topic["name"],
-                keywords=topic["keywords"],
-                weight=topic.get("weight", 1.0),
-            )
-        existing_topics = storage.get_topics(user_id)
-    _log(f"Topics loaded in {time.time() - topics_start:.1f}s ({len(existing_topics)} topics)")
+    _log(f"Runtime context loaded ({len(topics)} topics)")
 
     _log("Starting topic matching (embeddings)...")
     matcher_start = time.time()
@@ -102,7 +82,7 @@ def process_stories(stories: List[Dict], config: Dict) -> Dict:
             external_id=str(story["id"]) if story.get("id") is not None else None,
         )
 
-        for topic in existing_topics:
+        for topic in topics:
             if topic["name"] in story["all_topic_scores"]:
                 score = story["all_topic_scores"][topic["name"]]
                 storage.insert_item_topic_score(

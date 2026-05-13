@@ -4,9 +4,15 @@
 
 ## Immediate
 
-- [ ] **Build persona model + multi-user config** (engg) — `personas/` dir, `configs/users/` dir, pipeline resolves personas → topics at runtime. Highest priority — blocks Kintu and Mikey.
+- [ ] **Wire modular digest runner** (engg) — Orchestrate the separated commands: Scala ingestion, Python topic scoring, Python subscription loading, Scala selection/ranking, Python rendering, feedback sync. The runner must not let digest generation trigger scrape or scoring implicitly.
 
-- [ ] **Delivery for Kintu and Mikey** — They can't browse GitHub. Current plan: shared markdown URL sent over WhatsApp. No email infra needed for now. Validate this is enough before building something more.
+- [ ] **Make rendering read digest membership** (engg) — Markdown generation should consume `digest_items` or Scala selection JSON. Ranking should not be duplicated in Python.
+
+- [ ] **Populate separate content** (engg) — Store comments, extracted bodies, summaries, and source annotations in `item_content`; topic scoring config decides whether each content type participates.
+
+- [ ] **Global topic catalog from personas** (engg/product) — Persona configuration should generate or update global `topics`; user files should subscribe to those topics with filters, not create private topic definitions.
+
+- [ ] **Delivery for Kintu and Mikey** — They can't browse GitHub. Current plan: shared markdown URL sent over WhatsApp. No email infra needed for now. Validate this is enough before building something more after the modular runner can produce per-user digests.
 
 - [ ] **Validate Kintu's digest** — After first digest ships (`ux_design`), confirm topics resonate. UX/design content on HN is sparse — may need to add Substack feeds that cover design.
 
@@ -32,6 +38,10 @@
 
 ## Resolved
 
+- [x] **Architecture split** — Done (2026-05-13): four independent modules defined: catalog/ingestion, topic scoring, subscriptions/digests, feedback/engagement
+- [x] **Language ownership decision** — Done (2026-05-13): Scala for ingestion and selection/ranking; Python for ML scoring, customizability, rendering, and feedback parsing
+- [x] **Historical topic scores** — Done (2026-05-13): target schema keeps scores by `scoring_config_id`
+- [x] **Separate content model** — Done (2026-05-13): target schema includes `item_content` for comments/body/summaries outside canonical `items`
 - [x] **Fill in Target User** — Done (2026-05-13): VB, Kintu, Mikey profiles in PRODUCT_STRATEGY.md
 - [x] **Define Vision** — Done (2026-05-13): "A trusted peer filtered the internet for you"
 - [x] **Define Goals** — Done (2026-05-13): 3 measurable outcomes in PRODUCT_STRATEGY.md

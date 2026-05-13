@@ -1,6 +1,8 @@
 # knos-digest
 
-Daily HN digest archive in markdown format.
+Generated daily digest markdown output.
+
+Digest files are local runtime artifacts and are ignored by git. Keep only this README in the repository.
 
 ## Format
 
