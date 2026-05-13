@@ -33,12 +33,12 @@ grep -l "🎯" *.md | wc -l
 
 **Sync read items after marking [x] checkboxes:**
 ```bash
-venv/bin/python sync_reading_log.py knos-digest/YYYY-MM-DD.md
+venv/bin/python -m knowledge_os.sync_reading_log knos-digest/YYYY-MM-DD.md
 ```
 
 **Browse all stories/authors/config in the dashboard:**
 ```bash
-venv/bin/python -m streamlit run dashboard.py
+venv/bin/python -m streamlit run src/knowledge_os/dashboard.py
 ```
 
 ## Archive Stats

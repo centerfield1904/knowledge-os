@@ -17,6 +17,7 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+*.egg-info/
 
 # OS
 .DS_Store

@@ -43,16 +43,22 @@ Curates stories from Hacker News and Substack RSS feeds, matches them to your in
 
 ```bash
 # Install/update dependencies
-venv/bin/python -m pip install -e . -r requirements.txt
+uv pip install -e . -r requirements.txt --python venv/bin/python
 
 # Install test dependencies
-venv/bin/python -m pip install -r requirements-dev.txt
+uv pip install -r requirements-dev.txt --python venv/bin/python
 
 # Run full digest pipeline
 bash scripts/run_digest_v2.sh
 
 # Fetch and store only (no digest generation — for 6-hour cron)
 bash scripts/run_digest_v2.sh --fetch-only
+
+# Re-run today's digest (clears archive files + stale delivered feedback)
+bash scripts/run_digest_v2.sh --rerun
+
+# Run and push digest to GitHub
+bash scripts/run_digest_v2.sh --push
 
 # Run tests (integration tests require DB and are excluded in CI)
 venv/bin/python -m pytest tests/ -v -m "not integration"
@@ -194,7 +200,7 @@ _A quieter read for the weekend._
 - Records `read` or `read_with_note` feedback
 
 ### Delivery
-- **`scripts/run_digest_v2.sh`** — full pipeline: fetch all sources, merge, process, archive to `archive/` and `knos-digest/`
+- **`scripts/run_digest_v2.sh`** — full pipeline: fetch all sources, merge, process, archive to `archive/` and `knos-digest/`. Flags: `--fetch-only` (store without digest), `--push` (git push after archive), `--rerun` (clear today's archive + stale feedback, then run fresh)
 - **`scripts/daily_digest.sh`** — cron wrapper for the v2 pipeline; OpenClaw/cron handles message delivery outside Python
 - **`src/knowledge_os/engagement_summary.py`** — engagement reflection report
 
@@ -316,11 +322,10 @@ knowledge-os/
 │   └── archive/                     # Raw story/digest archive
 │
 └── Docs
-    ├── NEXT.md                  # Roadmap
+    ├── NEXT.md                  # Roadmap and decision log
     ├── CLAUDE.md                # AI assistant instructions
-    ├── ARCHITECTURE.md
-    ├── DAILY_FLOW.md
-    └── ENGAGEMENT.md
+    ├── ARCHITECTURE.md          # Schema and data flow reference
+    └── SAMPLE_OUTPUT.md         # Digest format examples
 ```
 
 ---
@@ -356,6 +361,11 @@ knowledge-os/
 ---
 
 ## Recent Updates
+
+**2026-04-30:** Empty digest fix + pipeline reliability
+- `get_undelivered_item_ids` replaces `is_new` as the gate for what appears in the digest — a story is suppressed only after it has been delivered, not merely stored
+- `--rerun` flag: clears today's archive files and removes stale `delivered` feedback from the last digest so the pipeline can re-run cleanly
+- `--push` flag: git push is now opt-in (was always-on)
 
 **2026-03-07:** Weekend mode, karma display, followed users, CI, weekly summary
 - **Weekend mode** — Saturday/Sunday digest splits into "Best Matches" (stricter threshold) and "Interesting Reads" (high-HN-score stories regardless of topic); fully configurable via dashboard Config tab

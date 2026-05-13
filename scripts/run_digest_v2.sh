@@ -11,10 +11,31 @@ PYTHON="$PROJECT_ROOT/venv/bin/python"
 export PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 FETCH_ONLY=false
 PUSH=false
+RERUN=false
 for arg in "$@"; do
     if [ "$arg" = "--fetch-only" ]; then FETCH_ONLY=true; fi
     if [ "$arg" = "--push" ]; then PUSH=true; fi
+    if [ "$arg" = "--rerun" ]; then RERUN=true; fi
 done
+
+if $RERUN; then
+    DATE=$(date +%Y-%m-%d)
+    log_step "🔄 Rerun mode — cleaning up today's archive and delivered feedback..."
+    rm -f "archive/${DATE}_digest.txt" "archive/${DATE}_stories.json" "knos-digest/${DATE}.md"
+    $PYTHON -c "
+import sqlite3, json
+db = sqlite3.connect('hn_digest_v2.db')
+row = db.execute('SELECT item_ids FROM digests ORDER BY sent_at DESC LIMIT 1').fetchone()
+if row:
+    ids = json.loads(row[0])
+    if ids:
+        db.execute('DELETE FROM feedback WHERE action=\"delivered\" AND item_id IN (%s)' % ','.join('?'*len(ids)), ids)
+        db.commit()
+        print(f'Removed delivered feedback for {len(ids)} item(s)', flush=True)
+db.close()
+" >&2
+    log_step "✓ Cleanup done"
+fi
 
 # Logging with timestamps
 log_step() {
@@ -99,13 +120,6 @@ if ! $FETCH_ONLY; then
     cp stories_raw.json "$STORIES_ARCHIVE"
     cp digest.txt "$DIGEST_ARCHIVE"
     cp digest.txt "$DIGEST_MD"
-
-    # Mark stories as delivered now that archive succeeded
-    if [ -f ".last_digest_id" ]; then
-        DIGEST_ID=$(cat .last_digest_id)
-        $PYTHON -m knowledge_os.process_digest --mark-delivered "$DIGEST_ID"
-        log_step "✓ Digest $DIGEST_ID marked delivered"
-    fi
 
     ARCHIVE_END=$(date +%s)
     ARCHIVE_DURATION=$((ARCHIVE_END - ARCHIVE_START))

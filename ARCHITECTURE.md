@@ -37,7 +37,9 @@ items (
     author,
     score,
     fetched_at,
+    published_at: ISO 8601 — if newer on re-fetch, item re-surfaces in digest,
     embedding_id: (for vector DB integration),
+    external_id: HN item ID or Substack URL hash,
     created_at
 )
 ```
@@ -129,6 +131,7 @@ class StorageInterface(ABC):
     @abstractmethod
     def insert_feedback(...)
     def get_feedback(user_id, item_id?) -> List[Dict]
+    def get_undelivered_item_ids(item_ids: List[int]) -> Set[int]  # stories not yet delivered
     
     # Authors
     @abstractmethod
@@ -223,65 +226,6 @@ storage = get_storage(backend="postgres", host="...", ...)
 - Background workers (Celery)
 - Vector DB (Pinecone/Weaviate) for semantic search
 - Analytics dashboard ✅ (Streamlit, local)
-
-## Future Enhancements
-
-### Feedback Loop
-- Track clicks → boost topic weights
-- Track dismissals → reduce similar items
-- A/B test digest formats
-
-### Personalization
-- Learn from implicit signals (reading time)
-- Author affinity scoring
-- Time-of-day preferences
-- Topic drift detection
-
-### Multi-Source
-- Reddit, Lobsters, ArXiv abstracts
-- Twitter threads
-- Newsletter digests
-- Podcast transcripts
-
-### Advanced Features
-- Thread tracking (multi-day storylines)
-- Duplicate detection
-- Summary generation (LLM)
-- Audio digests (TTS)
-- Interactive feedback UI
-
-## API Design (Future)
-
-```
-POST /api/feedback
-  { user_id, item_id, action, metadata }
-
-GET /api/digest/history
-  ?user_id=...&limit=10
-
-PUT /api/topics/:topic_id/weight
-  { weight: 1.5 }
-
-GET /api/analytics/topics
-  ?user_id=...&days=30
-```
-
-## Performance Considerations
-
-### Current (SQLite)
-- Handles 1-100 users easily
-- Local disk I/O
-- No network overhead
-
-### Postgres Migration
-- Connection pooling (pgbouncer)
-- Read replicas for analytics
-- Partitioning by user_id or date
-
-### Caching Strategy
-- User topics (rarely change)
-- Author stats (daily refresh)
-- Item embeddings (permanent)
 
 ## Testing
 
