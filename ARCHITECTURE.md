@@ -29,25 +29,31 @@ Not implemented yet:
 
 ## Runtime Flow
 
-```text
-scripts/run_digest_v2.sh
-  |
-  |-- knowledge_os.fetch_stories
-  |     -> stories_raw.json
-  |
-  |-- knowledge_os.fetch_substack
-  |     -> substack_raw.json
-  |
-  |-- merge
-  |     -> all_stories.json
-  |
-  |-- knowledge_os.process_digest
-  |     -> digest.txt
-  |
-  |-- archive
-        -> archive/YYYY-MM-DD_stories.json
-        -> archive/YYYY-MM-DD_digest.txt
-        -> knos-digest/YYYY-MM-DD.md
+```mermaid
+flowchart TD
+    runner["scripts/run_digest_v2.sh"]
+    hn["knowledge_os.fetch_stories<br/>HN Firebase API"]
+    substack["knowledge_os.fetch_substack<br/>Substack RSS"]
+    raw_hn["stories_raw.json"]
+    raw_substack["substack_raw.json"]
+    merged["all_stories.json"]
+    process["knowledge_os.process_digest"]
+    pipeline["digest_pipeline.process_stories"]
+    formatter["digest_formatter.generate_digest_text"]
+    digest_txt["digest.txt"]
+    archive_stories["archive/YYYY-MM-DD_stories.json"]
+    archive_digest["archive/YYYY-MM-DD_digest.txt"]
+    digest_md["knos-digest/YYYY-MM-DD.md"]
+    delivery["OpenClaw / cron<br/>WhatsApp delivery"]
+
+    runner --> hn --> raw_hn
+    runner --> substack --> raw_substack
+    raw_hn --> merged
+    raw_substack --> merged
+    merged --> process --> pipeline --> formatter --> digest_txt
+    digest_txt --> archive_digest
+    raw_hn --> archive_stories
+    digest_txt --> digest_md --> delivery
 ```
 
 ### Fetch
@@ -62,17 +68,26 @@ scripts/run_digest_v2.sh
 
 `src/knowledge_os/digest_pipeline.py` performs the main orchestration:
 
-- Filter old stories by `settings.max_age_days`.
-- Filter digest surfacing by source frequency when `sources` is configured.
-- Initialize SQLite through `get_storage`.
-- Get or create the configured user.
-- Create configured topics only if the user has none.
-- Match stories to topics with `TopicMatcher` and `sentence-transformers/all-MiniLM-L6-v2`.
-- Store items, item-topic scores, and user-author stats.
-- Suppress already delivered items through `get_undelivered_item_ids`.
-- Record a digest row and `delivered` feedback events.
-- Fetch HN comment summaries and author karma when engagement support is available.
-- Detect engagement opportunities and sync the configured HN user's comments.
+```mermaid
+flowchart TD
+    input["stories + config"]
+    age["Filter by settings.max_age_days"]
+    frequency["Filter by source frequency<br/>when sources is configured"]
+    storage["Initialize storage<br/>get_storage"]
+    user["Get/create configured user"]
+    topics["Load topics<br/>insert only when user has none"]
+    match["TopicMatcher<br/>all-MiniLM-L6-v2"]
+    persist["Store items, scores,<br/>and user-author stats"]
+    gate["Suppress delivered items<br/>get_undelivered_item_ids"]
+    digest["Insert digest row<br/>and delivered feedback"]
+    enrich["Fetch HN comment summaries<br/>and author karma"]
+    engagement["Detect engagement opportunities<br/>sync HN comments"]
+    result["Return render-ready result"]
+
+    input --> age --> frequency --> storage --> user --> topics --> match --> persist --> gate --> digest --> enrich --> engagement --> result
+```
+
+The important current limitation is topic sync: configured topics are inserted only when the user has no topics yet, so later config edits do not reliably update existing topic rows.
 
 ### Render And Deliver
 
@@ -153,153 +168,133 @@ The code also supports an optional `sources` section used by Substack and source
 
 SQLite schema lives in `src/knowledge_os/storage_sqlite.py`. The storage interface lives in `src/knowledge_os/storage_interface.py`.
 
-### Core Tables
+```mermaid
+erDiagram
+    USERS ||--o{ TOPICS : owns
+    USERS ||--o{ FEEDBACK : records
+    USERS ||--o{ DIGESTS : receives
+    USERS ||--o{ USER_AUTHORS : tracks
+    USERS ||--o{ USER_AUTHOR_ITEMS : dedupes
 
-```sql
-users (
-    user_id INTEGER PRIMARY KEY,
-    identifier TEXT UNIQUE NOT NULL,
-    settings TEXT,
-    created_at TEXT
-)
+    ITEMS ||--o{ ITEM_TOPIC_SCORES : scored_against
+    TOPICS ||--o{ ITEM_TOPIC_SCORES : receives_scores
+    ITEMS ||--o{ FEEDBACK : has_events
+    ITEMS ||--o{ USER_AUTHOR_ITEMS : counted_once
+
+    USERS {
+        integer user_id PK
+        text identifier UK
+        text settings
+        text created_at
+    }
+
+    ITEMS {
+        integer item_id PK
+        text url UK
+        text title
+        text source
+        text author
+        integer score
+        text fetched_at
+        text published_at
+        text external_id
+    }
+
+    TOPICS {
+        integer topic_id PK
+        integer user_id FK
+        text name
+        text keywords
+        real weight
+        text updated_at
+    }
+
+    ITEM_TOPIC_SCORES {
+        integer item_id PK
+        integer topic_id PK
+        real score
+        text computed_at
+    }
+
+    FEEDBACK {
+        integer feedback_id PK
+        integer user_id FK
+        integer item_id FK
+        text action
+        text metadata
+        text created_at
+    }
+
+    DIGESTS {
+        integer digest_id PK
+        integer user_id FK
+        text item_ids
+        text sent_at
+        text metadata
+    }
+
+    USER_AUTHORS {
+        integer user_id PK
+        text author_name PK
+        integer story_count
+        real total_score
+        text topics
+        text last_seen
+    }
+
+    USER_AUTHOR_ITEMS {
+        integer user_id PK
+        text author_name PK
+        integer item_id PK
+    }
 ```
 
-```sql
-items (
-    item_id INTEGER PRIMARY KEY,
-    url TEXT UNIQUE NOT NULL,
-    title TEXT NOT NULL,
-    source TEXT NOT NULL,
-    author TEXT,
-    score INTEGER,
-    fetched_at TEXT NOT NULL,
-    published_at TEXT NOT NULL DEFAULT '',
-    embedding_id TEXT,
-    external_id TEXT,
-    created_at TEXT
-)
-```
+Core storage notes:
 
-```sql
-topics (
-    topic_id INTEGER PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    keywords TEXT NOT NULL,
-    weight REAL DEFAULT 1.0,
-    created_at TEXT,
-    updated_at TEXT,
-    UNIQUE(user_id, name)
-)
-```
+- `items.url` is globally unique. Re-fetching a URL with a newer `published_at` updates the row and can re-surface it.
+- `topics` are user-scoped and unique by `(user_id, name)`.
+- `item_topic_scores` records semantic similarity for each stored item/topic pair.
+- `feedback` is the event log for `delivered`, `read`, `read_with_note`, and future actions.
+- `digests.item_ids` stores the delivered item list as JSON text.
+- `authors` still exists as an older global table. Current author continuity uses `user_authors` and `user_author_items`.
 
-```sql
-item_topic_scores (
-    item_id INTEGER NOT NULL,
-    topic_id INTEGER NOT NULL,
-    score REAL NOT NULL,
-    computed_at TEXT,
-    PRIMARY KEY(item_id, topic_id)
-)
-```
+### Engagement Schema
 
-```sql
-feedback (
-    feedback_id INTEGER PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    item_id INTEGER NOT NULL,
-    action TEXT NOT NULL,
-    metadata TEXT,
-    created_at TEXT
-)
-```
+`src/knowledge_os/engagement.py` owns engagement-specific tables. They are intentionally separate from the storage interface today.
 
-```sql
-digests (
-    digest_id INTEGER PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    item_ids TEXT NOT NULL,
-    sent_at TEXT NOT NULL,
-    metadata TEXT
-)
-```
+```mermaid
+erDiagram
+    ENGAGEMENT_OPPORTUNITIES ||--o| USER_COMMENTS : may_be_satisfied_by
+    ENGAGEMENT_STATS ||--o{ ENGAGEMENT_OPPORTUNITIES : summarizes
 
-### Author Tables
+    ENGAGEMENT_OPPORTUNITIES {
+        integer id PK
+        integer story_id
+        text detected_date
+        text opportunity_type
+        real score
+        text action_prompt
+        boolean engaged
+        text engagement_date
+        integer comment_id
+        integer karma_gained
+    }
 
-```sql
-authors (
-    author_id INTEGER PRIMARY KEY,
-    author_name TEXT UNIQUE NOT NULL,
-    story_count INTEGER,
-    total_score REAL,
-    topics TEXT,
-    first_seen TEXT,
-    last_seen TEXT
-)
-```
+    USER_COMMENTS {
+        integer comment_id PK
+        integer story_id
+        text comment_text
+        text posted_at
+        text synced_at
+    }
 
-`authors` exists for older/global author tracking. Current pipeline author continuity uses user-scoped tables:
-
-```sql
-user_authors (
-    user_id INTEGER NOT NULL,
-    author_name TEXT NOT NULL,
-    story_count INTEGER,
-    total_score REAL,
-    topics TEXT,
-    first_seen TEXT,
-    last_seen TEXT,
-    PRIMARY KEY(user_id, author_name)
-)
-```
-
-```sql
-user_author_items (
-    user_id INTEGER NOT NULL,
-    author_name TEXT NOT NULL,
-    item_id INTEGER NOT NULL,
-    PRIMARY KEY(user_id, author_name, item_id)
-)
-```
-
-### Engagement Tables
-
-`src/knowledge_os/engagement.py` owns these tables:
-
-```sql
-engagement_opportunities (
-    id INTEGER PRIMARY KEY,
-    story_id INTEGER,
-    detected_date TEXT,
-    opportunity_type TEXT,
-    score REAL,
-    action_prompt TEXT,
-    engaged BOOLEAN,
-    engagement_date TEXT,
-    comment_id INTEGER,
-    karma_gained INTEGER,
-    UNIQUE(story_id, detected_date)
-)
-```
-
-```sql
-user_comments (
-    comment_id INTEGER PRIMARY KEY,
-    story_id INTEGER,
-    comment_text TEXT,
-    posted_at TEXT,
-    synced_at TEXT
-)
-```
-
-```sql
-engagement_stats (
-    date TEXT PRIMARY KEY,
-    opportunities_detected INTEGER,
-    opportunities_engaged INTEGER,
-    total_karma_gained INTEGER,
-    comments_posted INTEGER
-)
+    ENGAGEMENT_STATS {
+        text date PK
+        integer opportunities_detected
+        integer opportunities_engaged
+        integer total_karma_gained
+        integer comments_posted
+    }
 ```
 
 ## Storage Interface
