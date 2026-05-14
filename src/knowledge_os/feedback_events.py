@@ -4,10 +4,16 @@ import argparse
 import json
 import re
 import sqlite3
+import sys
+from datetime import datetime
 from typing import Dict, Iterable, Optional
 
 from .schema import init_target_schema
 from .sync_reading_log import parse_read_items
+
+
+def _log(message: str) -> None:
+    print(f"[{datetime.now().isoformat(timespec='seconds')}] [feedback] {message}", file=sys.stderr)
 
 
 def _json(value: Optional[Dict]) -> Optional[str]:
@@ -53,6 +59,7 @@ def insert_feedback_event(
     metadata: Optional[Dict] = None,
 ) -> int:
     init_target_schema(db_path)
+    _log(f"Inserting action={action} user={user_identifier} item_id={item_id} digest_id={digest_id}")
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
@@ -78,8 +85,10 @@ def sync_markdown_feedback(
 ) -> int:
     """Parse checked digest items from markdown and insert read feedback."""
     init_target_schema(db_path)
+    _log(f"Parsing markdown feedback from {markdown_path}")
     with open(markdown_path) as f:
         read_items = parse_read_items(f.read())
+    _log(f"Found {len(read_items)} checked item(s)")
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -89,6 +98,7 @@ def sync_markdown_feedback(
         for item in read_items:
             row = _find_item(conn, item["title"], item.get("link", ""))
             if not row:
+                _log(f"Skipping unresolved item: {item['title']}")
                 continue
             action = "read_with_note" if item.get("note") else "read"
             metadata = {"note": item.get("note", "")} if item.get("note") else None
@@ -101,6 +111,7 @@ def sync_markdown_feedback(
             )
             written += 1
         conn.commit()
+        _log(f"Inserted {written} feedback event(s)")
         return written
     finally:
         conn.close()

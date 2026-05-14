@@ -28,11 +28,13 @@ def test_init_target_schema_creates_four_module_tables(tmp_path):
         "topics",
         "topic_scoring_configs",
         "item_topic_scores",
+        "topic_origins",
         "users",
         "user_topic_subscriptions",
         "digests",
         "digest_items",
         "feedback",
+        "delivery_events",
     }.issubset(_tables(db_path))
 
 

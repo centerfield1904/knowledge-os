@@ -10,6 +10,7 @@ digest_metadata.json
 archive/*_stories.json
 archive/*_digest.txt
 knos-digest/*.md
+knos-digest/**/*.md
 !knos-digest/README.md
 *.db
 

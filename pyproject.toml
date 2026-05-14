@@ -13,6 +13,9 @@ knowledge-os-init-schema = "knowledge_os.schema:main"
 knowledge-os-score-topics = "knowledge_os.topic_scoring:main"
 knowledge-os-load-subscriptions = "knowledge_os.subscriptions:main"
 knowledge-os-feedback = "knowledge_os.feedback_events:main"
+knowledge-os-render-digest = "knowledge_os.render_digest:main"
+knowledge-os-query = "knowledge_os.query_pipeline:main"
+knowledge-os-personas = "knowledge_os.personas:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

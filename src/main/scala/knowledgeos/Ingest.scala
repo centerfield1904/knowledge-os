@@ -1,11 +1,16 @@
 package knowledgeos
 
-import java.sql.{Connection, Statement}
+import java.sql.Connection
 import java.time.Instant
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.concurrent.duration.Duration
+import scala.util.control.NonFatal
 
 object Ingest:
+  private def log(message: String): Unit =
+    val ts = Instant.now().toString
+    Console.err.println(s"[$ts] [ingest] $message")
+
   case class Story(
       title: String,
       url: String,
@@ -19,20 +24,34 @@ object Ingest:
       metadataJson: String
   )
 
+  case class HackerNewsFetchConfig(
+      minScore: Int,
+      maxItems: Int,
+      concurrency: Int,
+      throttleMs: Int,
+      requestTimeoutMs: Int,
+      retries: Int
+  )
+
   def main(raw: Array[String]): Unit =
     val args = Args.parse(raw)
     val db = args.getOrElse("db", "knowledge_os.db")
     val configPath = Args.required(args, "sources")
+    log(s"Loading source config from $configPath")
     val config = ujson.read(os.read(os.Path(configPath, os.pwd)))
     val stories = fetchConfiguredSources(config)
+    log(s"Fetched ${stories.size} catalog item(s); writing to $db")
     Db.withConnection(db) { conn =>
       conn.setAutoCommit(false)
       try
+        initCatalogSchema(conn)
         stories.foreach(upsertStory(conn, _))
         conn.commit()
+        log(s"Committed ${stories.size} catalog item(s)")
       catch
         case ex: Throwable =>
           conn.rollback()
+          log(s"Rolled back catalog write after failure: ${ex.getMessage}")
           throw ex
     }
     println(s"Upserted ${stories.size} catalog item(s)")
@@ -44,44 +63,169 @@ object Ingest:
 
     sources.obj.get("hackernews").foreach { hn =>
       if hn("enabled").bool then
-        val minScore = hn.obj.get("min_score").map(_.num.toInt).getOrElse(50)
-        val maxItems = hn.obj.get("max_items").map(_.num.toInt).getOrElse(90)
-        futures += Future(fetchHackerNews(minScore, maxItems))
+        val fetchConfig = HackerNewsFetchConfig(
+          minScore = hn.obj.get("min_score").map(_.num.toInt).getOrElse(50),
+          maxItems = hn.obj.get("max_items").map(_.num.toInt).getOrElse(90),
+          concurrency = hn.obj.get("concurrency").map(_.num.toInt).getOrElse(8),
+          throttleMs = hn.obj.get("throttle_ms").map(_.num.toInt).getOrElse(150),
+          requestTimeoutMs = hn.obj.get("request_timeout_ms").map(_.num.toInt).getOrElse(10000),
+          retries = hn.obj.get("retries").map(_.num.toInt).getOrElse(1)
+        )
+        log(
+          s"Configured Hacker News fetch: maxItems=${fetchConfig.maxItems}, minScore=${fetchConfig.minScore}, " +
+            s"concurrency=${fetchConfig.concurrency}, throttleMs=${fetchConfig.throttleMs}, " +
+            s"timeoutMs=${fetchConfig.requestTimeoutMs}, retries=${fetchConfig.retries}"
+        )
+        futures += Future(fetchHackerNews(fetchConfig))
     }
 
     val result = Future.sequence(futures.result()).map(_.flatten.toVector)
     Await.result(result, Duration.Inf)
 
+  def initCatalogSchema(conn: Connection): Unit =
+    Db.execute(
+      conn,
+      """
+      CREATE TABLE IF NOT EXISTS authors (
+        author_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL,
+        external_author_id TEXT,
+        author_name TEXT NOT NULL,
+        profile_url TEXT,
+        story_count INTEGER DEFAULT 0,
+        total_score REAL DEFAULT 0.0,
+        metadata_json TEXT,
+        first_seen TEXT DEFAULT CURRENT_TIMESTAMP,
+        last_seen TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(source, author_name)
+      )
+      """
+    )
+    Db.execute(
+      conn,
+      """
+      CREATE TABLE IF NOT EXISTS items (
+        item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        source TEXT NOT NULL,
+        external_id TEXT,
+        author_id INTEGER,
+        author_name TEXT,
+        score INTEGER DEFAULT 0,
+        comment_count INTEGER DEFAULT 0,
+        item_text TEXT,
+        fetched_at TEXT NOT NULL,
+        published_at TEXT,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        metadata_json TEXT,
+        FOREIGN KEY (author_id) REFERENCES authors(author_id)
+      )
+      """
+    )
+    Db.execute(
+      conn,
+      """
+      CREATE TABLE IF NOT EXISTS item_content (
+        content_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id INTEGER NOT NULL,
+        content_type TEXT NOT NULL,
+        content_text TEXT NOT NULL,
+        source TEXT,
+        metadata_json TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (item_id) REFERENCES items(item_id),
+        UNIQUE(item_id, content_type, source)
+      )
+      """
+    )
+    Db.execute(conn, "CREATE INDEX IF NOT EXISTS idx_items_url ON items(url)")
+    Db.execute(conn, "CREATE INDEX IF NOT EXISTS idx_items_source_external ON items(source, external_id)")
+    Db.execute(conn, "CREATE INDEX IF NOT EXISTS idx_item_content_item_type ON item_content(item_id, content_type)")
+
   def fetchHackerNews(minScore: Int, maxItems: Int): Vector[Story] =
-    val topIds = requests.get("https://hacker-news.firebaseio.com/v0/topstories.json").text()
-    val ids = ujson.read(topIds).arr.take(maxItems * 3).map(_.num.toLong)
+    fetchHackerNews(
+      HackerNewsFetchConfig(
+        minScore = minScore,
+        maxItems = maxItems,
+        concurrency = 8,
+        throttleMs = 150,
+        requestTimeoutMs = 10000,
+        retries = 1
+      )
+    )
+
+  def fetchHackerNews(config: HackerNewsFetchConfig): Vector[Story] =
+    log("Fetching Hacker News top story IDs")
+    val topIds = requests
+      .get(
+        "https://hacker-news.firebaseio.com/v0/topstories.json",
+        readTimeout = config.requestTimeoutMs,
+        connectTimeout = config.requestTimeoutMs,
+      )
+      .text()
+    val ids = ujson.read(topIds).arr.take(config.maxItems * 3).map(_.num.toLong)
+    log(s"Fetching ${ids.size} Hacker News item payload(s) in batches of ${math.max(config.concurrency, 1)}")
     given ExecutionContext = ExecutionContext.global
-    val futures = ids.map { id =>
-      Future {
-        val body = requests.get(s"https://hacker-news.firebaseio.com/v0/item/$id.json").text()
-        val json = ujson.read(body)
-        if json.obj.get("type").exists(_.str == "story") &&
-           json.obj.get("score").exists(_.num.toInt >= minScore) &&
-           !json.obj.get("deleted").exists(_.bool)
-        then
-          Some(
-            Story(
-              title = json.obj.get("title").map(_.str).getOrElse(""),
-              url = json.obj.get("url").map(_.str).getOrElse(s"https://news.ycombinator.com/item?id=$id"),
-              source = "hackernews",
-              externalId = Some(id.toString),
-              authorName = json.obj.get("by").map(_.str).getOrElse("unknown"),
-              score = json.obj.get("score").map(_.num.toInt).getOrElse(0),
-              commentCount = json.obj.get("descendants").map(_.num.toInt).getOrElse(0),
-              itemText = json.obj.get("text").map(_.str),
-              publishedAt = json.obj.get("time").map(ts => Instant.ofEpochSecond(ts.num.toLong).toString),
-              metadataJson = json.render()
-            )
-          )
-        else None
-      }
+    val batchSize = math.max(config.concurrency, 1)
+    var batchNumber = 0
+    val stories = ids.grouped(batchSize).flatMap { batch =>
+      batchNumber += 1
+      val futures = batch.map(id => Future(fetchHackerNewsItem(id, config))).toVector
+      val fetched = Await.result(Future.sequence(futures), Duration.Inf).flatten
+      log(s"Hacker News batch $batchNumber fetched ${fetched.size}/${batch.size} matching item(s)")
+      if config.throttleMs > 0 then Thread.sleep(config.throttleMs.toLong)
+      fetched
     }
-    Await.result(Future.sequence(futures), Duration.Inf).flatten.sortBy(-_.score).take(maxItems).toVector
+    val result = stories.toVector.sortBy(-_.score).take(config.maxItems)
+    log(s"Hacker News fetch produced ${result.size} item(s) after filtering")
+    result
+
+  def fetchHackerNewsItem(id: Long, config: HackerNewsFetchConfig): Option[Story] =
+    retry(config.retries) {
+      val body = requests
+        .get(
+          s"https://hacker-news.firebaseio.com/v0/item/$id.json",
+          readTimeout = config.requestTimeoutMs,
+          connectTimeout = config.requestTimeoutMs,
+        )
+        .text()
+      hackerNewsStoryFromJson(id, ujson.read(body), config.minScore)
+    }.flatten
+
+  def hackerNewsStoryFromJson(id: Long, json: ujson.Value, minScore: Int): Option[Story] =
+    if json.obj.get("type").exists(_.str == "story") &&
+       json.obj.get("score").exists(_.num.toInt >= minScore) &&
+       !json.obj.get("deleted").exists(_.bool)
+    then
+      Some(
+        Story(
+          title = json.obj.get("title").map(_.str).getOrElse(""),
+          url = json.obj.get("url").map(_.str).getOrElse(s"https://news.ycombinator.com/item?id=$id"),
+          source = "hackernews",
+          externalId = Some(id.toString),
+          authorName = json.obj.get("by").map(_.str).getOrElse("unknown"),
+          score = json.obj.get("score").map(_.num.toInt).getOrElse(0),
+          commentCount = json.obj.get("descendants").map(_.num.toInt).getOrElse(0),
+          itemText = json.obj.get("text").map(_.str),
+          publishedAt = json.obj.get("time").map(ts => Instant.ofEpochSecond(ts.num.toLong).toString),
+          metadataJson = json.render()
+        )
+      )
+    else None
+
+  def retry[A](retries: Int)(block: => A): Option[A] =
+    var remaining = math.max(retries, 0)
+    while true do
+      try return Some(block)
+      catch
+        case NonFatal(ex) =>
+          if remaining <= 0 then
+            Console.err.println(s"[warn] Skipping HN item after fetch failure: ${ex.getMessage}")
+            return None
+          remaining -= 1
+          Thread.sleep(250L)
+    None
 
   def upsertStory(conn: Connection, story: Story): Unit =
     val authorId = upsertAuthor(conn, story.source, story.authorName)

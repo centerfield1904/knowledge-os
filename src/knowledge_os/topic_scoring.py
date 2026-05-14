@@ -3,6 +3,7 @@
 import argparse
 import json
 import sqlite3
+import sys
 from datetime import datetime
 from typing import Dict, Iterable, List, Tuple
 
@@ -10,6 +11,10 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer
 
 from .schema import init_target_schema
+
+
+def _log(message: str) -> None:
+    print(f"[{datetime.now().isoformat(timespec='seconds')}] [topic_scoring] {message}", file=sys.stderr)
 
 
 def _json(value) -> str:
@@ -81,6 +86,23 @@ def _upsert_topics(conn: sqlite3.Connection, topics: List[Dict]) -> List[Dict]:
     return result
 
 
+def _load_active_topics(conn: sqlite3.Connection) -> List[Dict]:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM topics
+        WHERE active = 1
+        ORDER BY name
+        """
+    ).fetchall()
+    result = []
+    for row in rows:
+        row_dict = dict(row)
+        row_dict["keywords"] = json.loads(row_dict["keywords_json"] or "[]")
+        result.append(row_dict)
+    return result
+
+
 def _iter_items(conn: sqlite3.Connection, only_unscored: bool, scoring_config_id: int) -> Iterable[sqlite3.Row]:
     if only_unscored:
         return conn.execute(
@@ -140,6 +162,7 @@ def _item_text(conn: sqlite3.Connection, item: sqlite3.Row, fields: List[str]) -
 def score_topics(db_path: str, config_path: str, only_unscored: bool = False) -> int:
     """Score catalog items against configured topics."""
     init_target_schema(db_path)
+    _log(f"Loading scoring config from {config_path}")
     cfg = _load_config(config_path)
     scoring_cfg = cfg["topic_scoring"]
     fields = scoring_cfg.get("content_fields", ["title"])
@@ -150,15 +173,19 @@ def score_topics(db_path: str, config_path: str, only_unscored: bool = False) ->
     conn.row_factory = sqlite3.Row
     try:
         scoring_config_id = _upsert_scoring_config(conn, cfg)
-        topics = _upsert_topics(conn, cfg.get("topics", []))
+        configured_topics = cfg.get("topics", [])
+        topics = _upsert_topics(conn, configured_topics) if configured_topics else _load_active_topics(conn)
         conn.commit()
         if not topics:
+            _log("No active topics found; wrote 0 scores")
             return 0
 
         items = list(_iter_items(conn, only_unscored, scoring_config_id))
         if not items:
+            _log("No items to score; wrote 0 scores")
             return 0
 
+        _log(f"Scoring {len(items)} item(s) against {len(topics)} topic(s) with {model_name}")
         model = SentenceTransformer(model_name)
         topic_texts = [
             f"{topic['name']}. {topic.get('description') or ''} " + " ".join(topic["keywords"])
@@ -204,6 +231,7 @@ def score_topics(db_path: str, config_path: str, only_unscored: bool = False) ->
                 )
                 written += 1
         conn.commit()
+        _log(f"Wrote {written} item-topic score(s)")
         return written
     finally:
         conn.close()

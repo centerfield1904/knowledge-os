@@ -77,3 +77,65 @@ class IngestSuite extends munit.FunSuite:
       assertEquals(authorRows, Vector("alice"))
     }
   }
+
+  test("initCatalogSchema creates required tables for an empty database") {
+    val db = tempDb()
+    Db.withConnection(db) { conn =>
+      Ingest.initCatalogSchema(conn)
+      val tables = Db.query(
+        conn,
+        """
+        SELECT name FROM sqlite_master
+        WHERE type = 'table' AND name IN ('authors', 'items', 'item_content')
+        ORDER BY name
+        """
+      )(_.getString("name"))
+
+      assertEquals(tables, Vector("authors", "item_content", "items"))
+    }
+  }
+
+  test("hackerNewsStoryFromJson filters low score items") {
+    val json = ujson.Obj(
+      "type" -> "story",
+      "title" -> "Too quiet",
+      "url" -> "https://example.com/quiet",
+      "by" -> "alice",
+      "score" -> 10,
+      "descendants" -> 1,
+      "time" -> 1770000000
+    )
+
+    assertEquals(Ingest.hackerNewsStoryFromJson(1, json, minScore = 50), None)
+  }
+
+  test("hackerNewsStoryFromJson normalizes valid stories") {
+    val json = ujson.Obj(
+      "type" -> "story",
+      "title" -> "Useful story",
+      "url" -> "https://example.com/useful",
+      "by" -> "alice",
+      "score" -> 100,
+      "descendants" -> 5,
+      "text" -> "body",
+      "time" -> 1770000000
+    )
+
+    val story = Ingest.hackerNewsStoryFromJson(123, json, minScore = 50).get
+
+    assertEquals(story.title, "Useful story")
+    assertEquals(story.externalId, Some("123"))
+    assertEquals(story.authorName, "alice")
+    assertEquals(story.score, 100)
+  }
+
+  test("retry returns None after failures instead of throwing") {
+    var attempts = 0
+    val result = Ingest.retry(retries = 1) {
+      attempts += 1
+      throw new RuntimeException("temporary failure")
+    }
+
+    assertEquals(result, None)
+    assertEquals(attempts, 2)
+  }

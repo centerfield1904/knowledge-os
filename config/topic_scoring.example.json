@@ -4,21 +4,5 @@
     "model": "all-MiniLM-L6-v2",
     "content_fields": ["title", "item_text", "comment_summary", "author_metadata"],
     "similarity_threshold": 0.3
-  },
-  "topics": [
-    {
-      "name": "AI/ML/LLMs",
-      "description": "AI research, LLM applications, agents, evals, RAG, inference, training, and ML systems.",
-      "keywords": [
-        "large language models",
-        "agents",
-        "evals",
-        "RAG",
-        "machine learning",
-        "model training",
-        "inference"
-      ],
-      "default_weight": 1.0
-    }
-  ]
+  }
 }

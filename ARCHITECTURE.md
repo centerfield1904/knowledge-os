@@ -399,7 +399,15 @@ Controls only ingestion.
 ```json
 {
   "sources": {
-    "hackernews": { "enabled": true, "min_score": 50, "max_items": 90 },
+    "hackernews": {
+      "enabled": true,
+      "min_score": 50,
+      "max_items": 90,
+      "concurrency": 6,
+      "throttle_ms": 250,
+      "request_timeout_ms": 15000,
+      "retries": 2
+    },
     "substack": {
       "enabled": true,
       "feeds": ["https://example.substack.com/feed"],
@@ -486,9 +494,12 @@ sbt "runMain knowledgeos.Ingest --db knowledge_os.db --sources config/sources.js
 # Scoring only
 python -m knowledge_os.topic_scoring --db knowledge_os.db --config config/topic_scoring.json
 
-# Digest selection/ranking only
-python -m knowledge_os.subscriptions --db knowledge_os.db --config config/user.vb.json
+# Persona/subscription materialization only
+python -m knowledge_os.personas --db knowledge_os.db --catalog personas/catalog.json --user-config configs/users/vb.json
+
+# Digest selection/ranking + rendering only
 sbt "runMain knowledgeos.GenerateDigest --db knowledge_os.db --user vb --max-items 20"
+python -m knowledge_os.render_digest --db knowledge_os.db --user vb --digest-id 1
 
 # Feedback sync only
 python -m knowledge_os.feedback_events --db knowledge_os.db --user vb --source knos-digest/vb/YYYY-MM-DD.md
@@ -500,10 +511,14 @@ Implemented in this branch:
 
 - Target schema initializer: `python -m knowledge_os.schema --db knowledge_os.db`.
 - Python topic scoring command: `python -m knowledge_os.topic_scoring --db knowledge_os.db --config config/topic_scoring.example.json`.
-- Python subscription loader: `python -m knowledge_os.subscriptions --db knowledge_os.db --config config/user.vb.example.json`.
-- Python feedback event sync: `python -m knowledge_os.feedback_events --db knowledge_os.db --user vb --source knos-digest/YYYY-MM-DD.md`.
+- Python persona materializer: `python -m knowledge_os.personas --db knowledge_os.db --catalog personas/catalog.json --user-config configs/users/vb.json`.
+- Python feedback event sync: `python -m knowledge_os.feedback_events --db knowledge_os.db --user vb --source knos-digest/vb/YYYY-MM-DD.md`.
+- Python digest renderer: `python -m knowledge_os.render_digest --db knowledge_os.db --user vb --digest-id 1`.
 - Scala catalog ingestion entry point: `sbt "runMain knowledgeos.Ingest --db knowledge_os.db --sources config/sources.example.json"`.
 - Scala digest selection/ranking entry point: `sbt "runMain knowledgeos.GenerateDigest --db knowledge_os.db --user vb --max-items 20"`.
+- Modular runner: `bash scripts/run_modular_digest.sh --db knowledge_os.db --user vb --overwrite`.
+- User runner: `bash scripts/run_user_digest.sh --user kintu --overwrite`.
+- All-user runner: `bash scripts/run_all_users.sh --overwrite`.
 - Scala unit tests for item URL dedupe, author upsert, subscription filtering, digest membership writes, and delivered feedback.
 - Scala integration test for the catalog -> scoring -> subscription -> digest -> feedback flow over the target schema.
 
@@ -516,20 +531,33 @@ venv/bin/python -m pytest tests/test_target_schema.py -q
 venv/bin/python -m pytest tests/ -q -m "not integration"
 ```
 
+Operational query scripts:
+
+```bash
+bash scripts/query_catalog.sh
+bash scripts/query_scoring.sh
+bash scripts/query_subscriptions.sh --user vb
+bash scripts/query_digest.sh
+bash scripts/query_digest.sh --digest-id 1
+bash scripts/query_feedback.sh --user vb
+bash scripts/query_catalog.sh --since 2026-05-14 --until 2026-05-14
+bash scripts/query_scoring.sh --topic AI/ML/LLMs --since 2026-05-14
+```
+
 ## Migration Notes
 
 Current implementation gaps relative to this architecture:
 
 - `scripts/run_digest_v2.sh` still fetches, merges, processes, scores, stores, renders, and archives in one legacy production path.
 - Legacy `digest_pipeline.py` still persists items and item-topic scores during digest generation; the new `GenerateDigest` path only reads precomputed scores and writes digest membership plus delivered feedback.
-- Legacy storage still has older topic/digest shapes; the target schema moves user preference to subscriptions and stores digest membership in `digest_items`.
-- Rendering remains Python-owned and still needs to consume Scala selection JSON or `digest_items`.
+- Legacy storage still has older topic/digest shapes; the target schema moves persona/user preference to subscriptions and stores digest membership in `digest_items`.
+- Legacy rendering still sits in the old production path, but the modular renderer now consumes `digest_items`.
 - Engagement-specific summaries can remain, but event ingestion should converge on the common `feedback` table.
 
 Recommended migration order:
 
-1. Wire `scripts/run_digest_v2.sh` or a replacement runner to call the separated module commands in order.
-2. Make rendering consume `digest_items`/selection JSON instead of recomputing selection in Python.
+1. Expand `scripts/run_modular_digest.sh` from a local runner into the daily production runner.
+2. Bring the modular renderer to feature parity with the legacy formatter where needed.
 3. Move HN/Substack fetchers behind the Scala ingestion command, keeping source-specific extraction isolated.
 4. Expand `item_content` population for comments, extracted bodies, summaries, and source annotations.
 5. Retire legacy topic/digest writes once the modular path produces the daily digest end to end.

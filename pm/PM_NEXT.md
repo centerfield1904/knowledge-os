@@ -10,7 +10,7 @@
 
 - [ ] **Populate separate content** (engg) — Store comments, extracted bodies, summaries, and source annotations in `item_content`; topic scoring config decides whether each content type participates.
 
-- [ ] **Global topic catalog from personas** (engg/product) — Persona configuration should generate or update global `topics`; user files should subscribe to those topics with filters, not create private topic definitions.
+- [x] **Global topic catalog from personas** (engg/product) — COMPLETE (2026-05-14: `personas/catalog.json`, `configs/users/{vb,kintu,mikey}.json`, and `knowledge_os.personas` materialize global topics + user subscriptions)
 
 - [ ] **Delivery for Kintu and Mikey** — They can't browse GitHub. Current plan: shared markdown URL sent over WhatsApp. No email infra needed for now. Validate this is enough before building something more after the modular runner can produce per-user digests.
 

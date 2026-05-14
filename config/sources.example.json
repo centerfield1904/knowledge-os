@@ -3,7 +3,11 @@
     "hackernews": {
       "enabled": true,
       "min_score": 50,
-      "max_items": 90
+      "max_items": 90,
+      "concurrency": 6,
+      "throttle_ms": 250,
+      "request_timeout_ms": 15000,
+      "retries": 2
     },
     "substack": {
       "enabled": false,

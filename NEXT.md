@@ -6,8 +6,10 @@
 - [x] **Split target architecture into four modules** — COMPLETE (2026-05-13: catalog/ingestion, topic scoring, subscriptions/digests, feedback/engagement documented in ARCHITECTURE.md)
 - [x] **Add target schema and modular commands** — COMPLETE (2026-05-13: `knowledge_os.schema`, `topic_scoring`, `subscriptions`, `feedback_events`; Scala `knowledgeos.Ingest` and `knowledgeos.GenerateDigest`)
 - [x] **Add Scala unit and integration tests** — COMPLETE (2026-05-13: URL dedupe, author upsert, subscription filtering, digest writes, delivered feedback, and full four-module DB flow)
-- [ ] **Wire modular runner** — Replace or supplement `scripts/run_digest_v2.sh` with a runner that calls ingestion, scoring, subscription loading, Scala selection/ranking, Python rendering, and feedback sync as separate steps.
-- [ ] **Make rendering consume `digest_items`** — Python rendering should read `digests`/`digest_items` or Scala selection JSON instead of recomputing topic matches during digest generation.
+- [x] **Wire modular runner** — COMPLETE (2026-05-13: `scripts/run_modular_digest.sh` calls ingestion, scoring, subscription loading, Scala selection/ranking, and Python rendering as separate steps)
+- [x] **Make rendering consume `digest_items`** — COMPLETE (2026-05-13: `knowledge_os.render_digest` renders markdown from `digests` / `digest_items` without recomputing ranking)
+- [x] **Persona-driven multi-user config** — COMPLETE (2026-05-14: persona catalog, VB/Kintu/Mikey configs, materializer, user/all-user runners, user-scoped digest paths)
+- [ ] **Bring modular renderer to digest format parity** — Add optional comment summaries, author karma, and engagement sections without moving ranking back into Python.
 - [x] **Engagement opportunity detection** - COMPLETE (Feb 20: 5 opps/day, username tracking, comment analysis)
 - [x] **Update digest format** - COMPLETE (🎯 Engagement Opportunities section added)
 - [x] **Engagement tracking schema** - COMPLETE (SQLite tables, auto comment sync)

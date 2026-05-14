@@ -103,6 +103,18 @@ def init_target_schema(db_path: str = "knowledge_os.db") -> None:
         """)
 
         c.execute("""
+            CREATE TABLE IF NOT EXISTS topic_origins (
+                topic_id INTEGER NOT NULL,
+                origin_type TEXT NOT NULL,
+                origin_id TEXT NOT NULL,
+                metadata_json TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (topic_id, origin_type, origin_id),
+                FOREIGN KEY (topic_id) REFERENCES topics(topic_id)
+            )
+        """)
+
+        c.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 identifier TEXT NOT NULL UNIQUE,
@@ -173,12 +185,30 @@ def init_target_schema(db_path: str = "knowledge_os.db") -> None:
             )
         """)
 
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS delivery_events (
+                delivery_event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                digest_id INTEGER NOT NULL,
+                channel TEXT NOT NULL,
+                status TEXT NOT NULL,
+                artifact_path TEXT,
+                artifact_url TEXT,
+                metadata_json TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(user_id),
+                FOREIGN KEY (digest_id) REFERENCES digests(digest_id)
+            )
+        """)
+
         c.execute("CREATE INDEX IF NOT EXISTS idx_items_url ON items(url)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_items_source_external ON items(source, external_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_item_content_item_type ON item_content(item_id, content_type)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_scores_topic_score ON item_topic_scores(topic_id, score)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_feedback_user_item_action ON feedback(user_id, item_id, action)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_digest_items_digest ON digest_items(digest_id, rank)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_topic_origins_origin ON topic_origins(origin_type, origin_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_delivery_events_digest ON delivery_events(digest_id)")
 
         conn.commit()
     finally:

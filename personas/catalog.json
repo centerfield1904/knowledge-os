@@ -1,0 +1,114 @@
+{
+  "personas": {
+    "software_eng": {
+      "name": "Software Engineer",
+      "topics": [
+        {
+          "name": "Software Engineering",
+          "description": "Programming languages, developer tools, systems design, open source, and maintainable software.",
+          "keywords": ["programming languages", "developer tools", "systems design", "open source", "software architecture", "debugging", "code quality"]
+        }
+      ]
+    },
+    "data_eng": {
+      "name": "Data Engineer",
+      "topics": [
+        {
+          "name": "Data Engineering",
+          "description": "Pipelines, ETL, streaming, orchestration, data warehouses, and data platform reliability.",
+          "keywords": ["data pipelines", "ETL", "streaming", "orchestration", "data warehouse", "data platform", "Spark", "Kafka"]
+        }
+      ]
+    },
+    "data_scientist": {
+      "name": "Data Scientist",
+      "topics": [
+        {
+          "name": "Data Science",
+          "description": "Statistical modeling, ML engineering, experimentation, analytics, and applied data products.",
+          "keywords": ["data science", "statistical modeling", "machine learning", "experimentation", "analytics", "ML engineering", "causal inference"]
+        }
+      ]
+    },
+    "ai_researcher": {
+      "name": "AI / ML Researcher",
+      "topics": [
+        {
+          "name": "AI Research",
+          "description": "AI research papers, model architectures, benchmarks, interpretability, training, and evaluation.",
+          "keywords": ["AI research", "model architecture", "benchmarks", "interpretability", "model training", "evaluation", "deep learning"]
+        }
+      ]
+    },
+    "llm_researcher": {
+      "name": "LLM Researcher",
+      "topics": [
+        {
+          "name": "AI/ML/LLMs",
+          "description": "LLMs, prompting, RAG, agents, evals, fine-tuning, inference, and ML systems.",
+          "keywords": ["large language models", "LLMs", "prompting", "RAG", "agents", "evals", "fine-tuning", "inference", "tool calling"]
+        }
+      ]
+    },
+    "pm": {
+      "name": "Product Manager",
+      "topics": [
+        {
+          "name": "Product Strategy",
+          "description": "Product strategy, user research, roadmapping, metrics, GTM, and product discovery.",
+          "keywords": ["product strategy", "user research", "roadmap", "metrics", "go to market", "product discovery", "positioning"]
+        }
+      ]
+    },
+    "ux_design": {
+      "name": "UX / Design",
+      "topics": [
+        {
+          "name": "UX / Design",
+          "description": "Interaction design, usability, design systems, accessibility, research, and interface craft.",
+          "keywords": ["interaction design", "usability", "design systems", "accessibility", "user experience", "interface design", "user research"]
+        }
+      ]
+    },
+    "applied_math": {
+      "name": "Applied Mathematician",
+      "topics": [
+        {
+          "name": "Applied Math",
+          "description": "Optimization, stochastic systems, probability, statistics, causal inference, and mathematical modeling.",
+          "keywords": ["optimization", "stochastic systems", "probability", "statistics", "causal inference", "mathematical modeling"]
+        }
+      ]
+    },
+    "swe_infra": {
+      "name": "Infrastructure / Platform",
+      "topics": [
+        {
+          "name": "Infrastructure / Platform",
+          "description": "DevOps, cloud, distributed systems, reliability, observability, and platform engineering.",
+          "keywords": ["DevOps", "cloud infrastructure", "distributed systems", "reliability", "observability", "platform engineering", "Kubernetes"]
+        }
+      ]
+    },
+    "startup_founder": {
+      "name": "Founding Engineer",
+      "topics": [
+        {
+          "name": "Startups / Founding",
+          "description": "Startups, fundraising, product-market fit, hiring, growth, and early company building.",
+          "keywords": ["startups", "fundraising", "product market fit", "hiring", "growth", "founder", "early stage"]
+        }
+      ]
+    },
+    "philosopher": {
+      "name": "Philosophy / Thinking",
+      "topics": [
+        {
+          "name": "Philosophy/Thinking Tools",
+          "description": "Epistemology, decision theory, rationality, mental models, and systems thinking.",
+          "keywords": ["philosophy", "epistemology", "decision theory", "rationality", "mental models", "systems thinking", "reasoning"]
+        }
+      ]
+    }
+  }
+}

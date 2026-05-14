@@ -1,0 +1,6 @@
+{
+  "sources_config": "config/sources.example.json",
+  "scoring_config": "config/topic_scoring.example.json",
+  "persona_catalog": "personas/catalog.json",
+  "database": "knowledge_os.db"
+}

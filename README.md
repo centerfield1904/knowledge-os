@@ -83,10 +83,30 @@ venv/bin/python -m knowledge_os.schema --db knowledge_os.db
 
 # New modular commands
 sbt "runMain knowledgeos.Ingest --db knowledge_os.db --sources config/sources.example.json"
+venv/bin/python -m knowledge_os.personas --db knowledge_os.db --catalog personas/catalog.json --user-config configs/users/vb.json
 venv/bin/python -m knowledge_os.topic_scoring --db knowledge_os.db --config config/topic_scoring.example.json
-venv/bin/python -m knowledge_os.subscriptions --db knowledge_os.db --config config/user.vb.example.json
 sbt "runMain knowledgeos.GenerateDigest --db knowledge_os.db --user vb --max-items 20"
-venv/bin/python -m knowledge_os.feedback_events --db knowledge_os.db --user vb --source knos-digest/YYYY-MM-DD.md
+venv/bin/python -m knowledge_os.render_digest --db knowledge_os.db --user vb --digest-id 1
+venv/bin/python -m knowledge_os.feedback_events --db knowledge_os.db --user vb --source knos-digest/vb/YYYY-MM-DD.md
+
+# Run the modular flow end to end
+bash scripts/run_modular_digest.sh --db knowledge_os.db --user vb --overwrite
+bash scripts/run_user_digest.sh --user kintu --overwrite
+bash scripts/run_all_users.sh --overwrite
+
+# Operational commands log progress to stderr, keeping JSON/stdout output parseable.
+
+# Inspect modular pipeline state
+bash scripts/query_catalog.sh
+bash scripts/query_scoring.sh
+bash scripts/query_subscriptions.sh --user vb
+bash scripts/query_digest.sh
+bash scripts/query_digest.sh --digest-id 1
+bash scripts/query_feedback.sh --user vb
+
+# Date filters for catalog/scoring queries
+bash scripts/query_catalog.sh --since 2026-05-14 --until 2026-05-14
+bash scripts/query_scoring.sh --topic AI/ML/LLMs --since 2026-05-14
 
 # Sync read items from a digest file
 venv/bin/python -m knowledge_os.sync_reading_log knos-digest/YYYY-MM-DD.md
@@ -140,8 +160,9 @@ The new modular path is intentionally split:
 |--------|-------|---------|
 | Catalog / Ingestion | Scala | Concurrent source fetching, `items.url` dedupe, author and content upserts. |
 | Topic Scoring | Python | Configurable ML scoring, global topics, historical score sets by scoring config. |
-| Subscriptions / Digests | Scala + Python config loader | User-specific selection and ranking from precomputed scores; each run creates a new `digest_id`. |
-| Feedback / Engagement | Python | User-per-item event ingestion and engagement/read summaries. |
+| Personas / Subscriptions | Python | Resolve persona assignments into global topics and user subscriptions. |
+| Digests | Scala | User-specific selection and ranking from precomputed scores; each run creates a new `digest_id`. |
+| Rendering / Feedback | Python | Markdown rendering from `digest_items`, user-per-item feedback ingestion, and engagement/read summaries. |
 
 ---
 
@@ -320,9 +341,14 @@ knowledge-os/
 ├── pytest.ini                   # pytest marker definitions
 │
 ├── config/
-│   ├── sources.example.json         # Ingestion config
+│   ├── sources.example.json         # Ingestion config, including HN throttle/retry settings
 │   ├── topic_scoring.example.json   # Topic scoring config
 │   └── user.vb.example.json         # User subscription config
+├── configs/
+│   ├── base.json
+│   └── users/{vb,kintu,mikey}.json  # Persona-driven user configs
+├── personas/
+│   └── catalog.json                 # Canonical persona topic catalog
 │
 ├── src/main/scala/knowledgeos/      # Scala package
 │   ├── Ingest.scala             # Catalog ingestion
@@ -335,9 +361,11 @@ knowledge-os/
 │   ├── fetch_substack.py        # Substack RSS fetcher (per-feed frequency)
 │   ├── match_topics.py          # Semantic topic matcher + score_all_stories()
 │   ├── schema.py                # Target four-module SQLite schema
+│   ├── personas.py              # Persona topic/subscription materializer
 │   ├── topic_scoring.py         # Configurable ML topic scoring
 │   ├── subscriptions.py         # User subscription config loader
 │   ├── feedback_events.py       # Common feedback event ingestion
+│   ├── render_digest.py         # Markdown rendering from digest_items
 │   ├── process_digest.py        # Legacy production CLI wrapper
 │   ├── digest_pipeline.py       # Main orchestration
 │   ├── digest_formatter.py      # Digest text rendering
@@ -351,6 +379,15 @@ knowledge-os/
 │   └── dashboard.py             # Streamlit UI
 │
 ├── scripts/
+│   ├── run_modular_digest.sh    # Four-module runner
+│   ├── run_user_digest.sh       # One configured user
+│   ├── run_all_users.sh         # Shared ingest/scoring, per-user digest
+│   ├── publish_digest.sh        # Commit/push one user digest and print URL
+│   ├── query_catalog.sh         # Catalog items/authors summary
+│   ├── query_scoring.sh         # Topics, scoring configs, top scores
+│   ├── query_subscriptions.sh   # Users and topic subscriptions
+│   ├── query_digest.sh          # Digest runs and selected items
+│   ├── query_feedback.sh        # Feedback events
 │   ├── run_digest_v2.sh         # Full pipeline (--fetch-only for 6h cron)
 │   ├── daily_digest.sh          # Cron wrapper (2 PM digest)
 │   └── send_engagement_summary.sh
@@ -361,6 +398,8 @@ knowledge-os/
 ├── Tests
 │   ├── src/test/scala/knowledgeos/*Suite.scala # Scala unit + integration tests
 │   ├── tests/test_target_schema.py       # target schema/config/feedback tests
+│   ├── tests/test_render_digest.py       # modular renderer tests
+│   ├── tests/test_query_pipeline.py      # query CLI SQL tests
 │   ├── tests/test_process_digest.py       # unit
 │   ├── tests/test_storage.py              # unit
 │   ├── tests/test_engagement.py           # unit
@@ -369,7 +408,7 @@ knowledge-os/
 │   └── tests/test_pipeline_integration.py # integration (marked, excluded from CI)
 │
 ├── Output
-│   ├── knos-digest/YYYY-MM-DD.md   # generated daily digest markdown (gitignored)
+│   ├── knos-digest/<user>/YYYY-MM-DD.md # generated daily digest markdown (gitignored)
 │   └── archive/                     # generated raw story/digest archive
 │
 └── Docs
