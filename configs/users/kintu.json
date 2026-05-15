@@ -16,7 +16,8 @@
     }
   },
   "digest": {
-    "cadence": "daily",
+    "cadence": "biweekly",
+    "send_days": ["tue", "fri"],
     "max_items": 12,
     "format": "markdown"
   },

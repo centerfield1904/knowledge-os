@@ -70,6 +70,120 @@ For now, manually map the reply to feedback events:
 
 This is intentionally rough. The goal is to learn whether the content is valuable before designing a full feedback loop.
 
+---
+
+## Launch Plan (Mikey + Kintu)
+
+### Cadence
+
+- **Kintu and Mikey**: twice-weekly, Tuesday and Friday.
+  - Kintu: aggregating across 3–4 days solves the `ux_design` sparsity problem on HN
+  - Mikey: lower social pressure than daily for a v1 external user; reads as "considered share" rather than "noise from VB"
+  - Skips Monday (weekend carryover) and weekends
+  - Tradeoff: loses topicality. Mitigated by keeping `freshness_days` short (7 for Mikey, 14 for Kintu)
+- **VB**: stays daily — own reading habit, not a delivery question
+- Cadence is enforced by *when the script is run*, not by the pipeline. `"cadence": "biweekly"` + `"send_days": ["tue", "fri"]` in `configs/users/{kintu,mikey}.json` documents intent.
+
+### State of readiness
+
+**Ready**
+- Persona model + `configs/users/{kintu,mikey,vb}.json` exist
+- Modular pipeline wired: ingestion → persona materializer → scoring → selection → render
+- `publish_digest.sh` commits markdown and prints a stable GitHub URL
+- Delivery decision frozen: manual WhatsApp share of a GitHub markdown URL
+
+**Gaps blocking a clean first send**
+1. No digest artifact has been produced yet for kintu or mikey — `knos-digest/` has no user subdirectories
+2. Modular renderer is missing comment blurbs and author karma (parity gap, `NEXT.md`)
+3. Kintu's source pool (`ux_design` on HN + current Substacks) likely returns <3 useful items
+4. `send_whatsapp_digest_prompt.sh` helper not built yet
+5. No feedback capture path for non-technical users
+
+### Phase 1 — Dry run before sending anything
+
+Goal: see what each user would actually receive before committing to a send.
+
+1. Run `bash scripts/run_user_digest.sh --user kintu --overwrite` and `--user mikey --overwrite` against `knowledge_os.db`. Inspect the rendered markdown locally — do not publish.
+2. **Hard gate for Kintu:** if her digest has fewer than 3 items, do not launch her until 4–6 design Substack feeds are added (a16z design, Nielsen Norman, Julie Zhuo, etc.). Add to shared sources if broadly useful, otherwise scope to her config.
+3. Read Mikey's digest as if you were him. If it reads as generic HN noise rather than AI-researcher signal, raise `min_topic_score` from 0.35 → 0.40 in his config.
+
+#### Phase 1 results (2026-05-15)
+
+Samples generated under `knos-digest/{kintu,mikey,vb}/2026-05-{14,15}.md`.
+
+- **Kintu — fails hard gate.** 1 item on 5-14 (score 0.327, borderline), 0 items on 5-15. Confirms HN `ux_design` is too sparse. **Blocked on Substack design feed additions.** Twice-weekly cadence will help but doesn't solve it alone.
+- **Mikey — borderline pass.** 6 items on 5-14 (decent quality: Needle distillation, software architecture); 2 items on 5-15 with one HN-rant ("AI is making me dumb") slipping through. Twice-weekly cadence improves the per-send average. Threshold raise 0.35 → 0.40 deferred — re-evaluate after first two real sends.
+- **VB — volatile.** 4 items then 0. Likely a `freshness_days` / `suppress_delivered` interaction, not a threshold issue. Investigate separately.
+
+#### Format gaps to fix before any external send
+
+Visible in the samples — fine for VB, confusing for Mikey/Kintu:
+
+1. `_digest_id: 6_` line — engineering metadata; hide for non-VB users
+2. `topic: 0.413` — exposes internal scoring; remove or replace with a human label
+3. `_No selected items for this run._` — bad cold-start experience; **skip-send on zero-item days** rather than render an empty digest
+4. Empty trailing `Notes:` field on every item — feels templated; drop unless populated
+5. Missing karma and 💬 top-comment blurb — parity gap already tracked in `NEXT.md`
+
+### Phase 2 — Close the smallest renderer gaps
+
+Only what is needed to make the digest feel polished to a stranger:
+- Include author karma and 💬 top-comment blurb in the modular renderer
+- Skip the engagement section — it is a VB-only feature and would confuse external users
+
+### Phase 3 — Send
+
+1. Build `scripts/send_whatsapp_digest_prompt.sh --user <id> --date YYYY-MM-DD` — outputs path, GitHub URL, and suggested message body (see "Next Small Build" below). ~20 lines of bash.
+2. Send Mikey first using the message above.
+3. **Wait 24 hours before sending Kintu** — she is family, lower stakes to delay, and one real-world data point is worth more than a parallel send.
+4. After Mikey's first reply (or 24h silence), send Kintu.
+
+### Phase 4 — Capture feedback manually for one week
+
+- Log replies in `pm/launch_log.md`: date, user, reply, interpretation.
+- Do not build feedback infra during week 1. Goal is answering the strategy questions in `PM_NEXT.md`, not automating anything.
+- After 5–7 sends each, decide:
+  - Is markdown-on-mobile readable enough?
+  - Is Mikey's persona assignment correct?
+  - Does Kintu have enough source coverage?
+  - What single feedback signal (reply, click, silence) is informative enough to build on?
+
+### Delivery surface: GitHub markdown vs. site page
+
+The personal site at `bvaibhav.info` already renders my own digest at `/knos-digest` (source: `~/dev/projects/bvaibhav-info/src/app/knos-digest/page.tsx`, data from `public/data/knos-digest.json`). It's plausible to give Kintu and Mikey their own page (e.g., `/knos-digest/m-<slug>`) instead of a raw GitHub markdown URL.
+
+**Pros of a site URL**
+- Far better mobile reading — GitHub markdown on phones has UI chrome and login nags
+- Feels like a product, not a leaked file
+- Can render category grouping, read state, author meta cleanly
+- One stable URL per user; can add light interactivity later (reactions, save)
+
+**Cons**
+- Requires per-user route + per-user JSON export, plus a site deploy on each digest run — couples digest cadence to site cadence
+- Site is public; identifiable URLs (`/knos-digest/mikey`) leak names and reading interests. Mitigation: obfuscated slugs (`/knos-digest/m-7a3f`), but still indexable unless `noindex` is set
+- More moving parts before we even know the content is valuable
+
+**Decision for launch**: stay on the GitHub markdown URL for Phase 3. It is the cheapest way to test *whether the content is useful*. The site page is a Phase 5+ upgrade triggered by one specific signal: a user reports the markdown is hard to read on mobile, or asks for a "real" link. At that point:
+
+1. Add a `/knos-digest/[slug]` dynamic route to the site
+2. Have the digest pipeline export `public/data/knos-digest-<slug>.json` alongside the markdown
+3. Set `noindex` on per-user pages; use unguessable slugs
+4. Keep markdown as a fallback / archive
+
+Tracked as a deferred item below.
+
+### Explicit non-goals for this launch
+
+- WhatsApp Business API / automation
+- Link click tracking
+- External-user dashboard
+- Reply parsing
+- Email fallback
+
+These remain deferred until real reply data exists.
+
+---
+
 ## Open Questions
 
 - Is a GitHub markdown link readable enough on mobile?
@@ -88,6 +202,7 @@ This is intentionally rough. The goal is to learn whether the content is valuabl
 - Reply parsing
 - External-user dashboard
 - Email delivery
+- **Per-user page on bvaibhav.info** — `/knos-digest/<slug>` with obfuscated slug + `noindex`; export per-user JSON from the digest pipeline. Trigger: a user complains about mobile readability or asks for a "real" link.
 
 ## Next Small Build
 
