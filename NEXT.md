@@ -125,3 +125,20 @@
 - Focus on reliability first, features second
 - MVP → iterate philosophy applies here too
 - If engagement drops, audit match quality before adding features
+
+---
+
+## Session Log
+
+Dated record of what closed each session. Read by `/week-review` to compute project momentum.
+
+### 2026-05-13
+- [x] Install Scala and verify (Homebrew OpenJDK, SBT, Scala; `sbt test` passing)
+- [x] Document four-module architecture in ARCHITECTURE.md
+- [x] Add target schema and modular commands (`knowledge_os.schema`, `topic_scoring`, `subscriptions`, `feedback_events`; Scala `knowledgeos.Ingest` and `knowledgeos.GenerateDigest`)
+- [x] Add Scala unit and integration tests (URL dedupe, author upsert, subscription filtering, digest writes, delivered feedback, full four-module DB flow)
+- [x] Wire modular runner (`scripts/run_modular_digest.sh`)
+- [x] Make rendering consume `digest_items` (`knowledge_os.render_digest` renders without recomputing ranking)
+
+### 2026-05-14
+- [x] Persona-driven multi-user config (persona catalog, VB/Kintu/Mikey configs, materializer, user/all-user runners, user-scoped digest paths)
