@@ -2,6 +2,13 @@
 
 ## Immediate (This Week)
 
+- [ ] **Add side-effect-free digest preview for VB** — `GenerateDigest` currently writes a digest and `delivered` feedback even during dry-run quality checks. Add `--preview` / `--dry-run` mode that returns ranked candidates without inserting into `digests`, `digest_items`, or `feedback`; update launch/smoke scripts to use it.
+- [ ] **Stabilize VB daily digest volume** — Investigate the observed 4-items-then-0-items pattern after modular dry runs. Audit `freshness_days`, `suppress_delivered`, dry-run delivered rows, and scoring coverage; add a query that explains every rejected candidate by filter.
+- [ ] **Make topic scoring local/offline safe** — The launch smoke logs showed repeated Hugging Face DNS retries before scoring completed. Add a model-cache preflight, explicit offline/local-model option, clearer failure message, and a short retry policy so daily runs do not hang on network/model resolution.
+- [ ] **Populate modular enrichment data before rendering** — The renderer can show author karma and top-comment blurbs, but the modular path does not reliably populate `authors.metadata_json` or `item_content` yet. Add a separate enrichment step that fills HN author karma, top comments, article summaries, and source annotations without changing ranking.
+- [ ] **Improve Scala RSS/Substack adapter quality** — Current Scala ingestion fetches RSS feeds, but it is still basic: source is always `substack`, feed identity lives only in metadata, HTML entities are not decoded, and per-feed frequency is not honored in the Scala path. Add feed/source tags, robust date parsing, HTML text normalization, and fetch metrics.
+- [ ] **Separate launch feeds from VB/global scoring noise** — Kintu design feeds are now global catalog inputs, which is correct for catalog freshness but can leak AI/design overlap into Mikey/VB scoring. Add source tags or per-topic source weights so selection can distinguish "design feed item about AI UX" from core AI research content.
+- [ ] **Add launch health summary command** — One command should report catalog counts, scored-item counts by topic, candidate counts before/after filters, selected count, empty-digest risk, and last catalog refresh time for `vb`, `mikey`, and `kintu`.
 - [x] **Install Scala and verify** — COMPLETE (2026-05-13: Homebrew OpenJDK, SBT, and Scala installed; verified `scala -version`; `sbt test` passes)
 - [x] **Split target architecture into four modules** — COMPLETE (2026-05-13: catalog/ingestion, topic scoring, subscriptions/digests, feedback/engagement documented in ARCHITECTURE.md)
 - [x] **Add target schema and modular commands** — COMPLETE (2026-05-13: `knowledge_os.schema`, `topic_scoring`, `subscriptions`, `feedback_events`; Scala `knowledgeos.Ingest` and `knowledgeos.GenerateDigest`)
@@ -9,7 +16,7 @@
 - [x] **Wire modular runner** — COMPLETE (2026-05-13: `scripts/run_modular_digest.sh` calls ingestion, scoring, subscription loading, Scala selection/ranking, and Python rendering as separate steps)
 - [x] **Make rendering consume `digest_items`** — COMPLETE (2026-05-13: `knowledge_os.render_digest` renders markdown from `digests` / `digest_items` without recomputing ranking)
 - [x] **Persona-driven multi-user config** — COMPLETE (2026-05-14: persona catalog, VB/Kintu/Mikey configs, materializer, user/all-user runners, user-scoped digest paths)
-- [ ] **Bring modular renderer to digest format parity** — Add optional comment summaries, author karma, and engagement sections without moving ranking back into Python.
+- [ ] **Bring modular renderer to digest format parity** — Add optional engagement sections and verify the new enrichment step supplies comment summaries and author karma without moving ranking back into Python.
 - [x] **Engagement opportunity detection** - COMPLETE (Feb 20: 5 opps/day, username tracking, comment analysis)
 - [x] **Update digest format** - COMPLETE (🎯 Engagement Opportunities section added)
 - [x] **Engagement tracking schema** - COMPLETE (SQLite tables, auto comment sync)
@@ -40,9 +47,9 @@
 - [ ] **Use local LLM** - For summarization and any other daily operations, use a local LLM, not remote apis
 - [ ] **Refine topic embeddings** - Adjust if matches drift from intent
 - [ ] **Add topic weights** - Let VB prioritize AI/ML > Parenting > Philosophy, etc.
-- [ ] **Threshold tuning** - Current semantic similarity cutoff may need calibration
-- [ ] **Feedback mechanism** - via whatsapp
-- [ ] **Store feedback** - store the feedback as: opening links, links engaged with, linked stored in the memo db
+- [ ] **Threshold tuning** - Current semantic similarity cutoff may need calibration; use per-topic score distributions and rejected-candidate explanations rather than one global cutoff
+- [ ] **Feedback mechanism** - Deferred until manual WhatsApp launch produces repeated signal worth automating
+- [ ] **Store feedback** - Deferred; do not build link/open tracking until the manual launch proves which signal is useful
 
 ### UX
 - [ ] **Redesign the dashboard** - make it super user friendly, less clunky. Keep the streamlit version for all the bells and whistles. Create one for external users.
@@ -62,7 +69,7 @@
 - [ ] **Logging & metrics** - Track story volume, match rates, delivery timing
 - [ ] **Backup & recovery** - SQLite backup strategy (daily? weekly?)
 - [ ] **Error handling** - Graceful degradation if HN API is down
-- [ ] **Scala ingestion source parity** - Bring Substack and any future source adapters into the catalog ingestion module without coupling them to scoring or rendering.
+- [x] **Scala ingestion source parity** - COMPLETE (2026-05-15: Scala catalog ingestion now fetches configured RSS/Substack feeds alongside HN; remaining quality work tracked above)
 - [ ] **Separate content enrichment** - Populate `item_content` for comments, extracted article bodies, summaries, and source annotations.
 
 ### Interactive Feedback
@@ -108,6 +115,7 @@
 **2026-02-13** - v2 migration: improved storage layer, better topic handling  
 **2026-04-30** - Fixed empty digest bug: `get_undelivered_item_ids` replaces `is_new` as the display gate; `--rerun` flag clears archive + stale feedback; `--push` flag makes git push opt-in  
 **2026-05-13** - Four-module architecture adopted: catalog, topic scoring, subscriptions/digests, and feedback are independent; Scala owns ingestion plus selection/ranking; Python owns ML scoring, config, rendering, and feedback parsing
+**2026-05-16** - Launch-readiness review: Kintu source coverage improved with design feeds; Mikey threshold tuned; remaining VB risks are side-effectful dry runs, offline scoring reliability, enrichment gaps, and candidate/filter observability
 
 ---
 

@@ -2,7 +2,12 @@ import json
 import sqlite3
 
 from knowledge_os.feedback_events import sync_markdown_feedback
-from knowledge_os.render_digest import load_digest_items, render_digest_file, render_digest_text
+from knowledge_os.render_digest import (
+    NoDigestItemsError,
+    load_digest_items,
+    render_digest_file,
+    render_digest_text,
+)
 from knowledge_os.schema import init_target_schema
 
 
@@ -15,6 +20,10 @@ def _seed_digest(db_path):
             INSERT INTO authors (source, author_name)
             VALUES ('hackernews', 'alice')
             """
+        )
+        conn.execute(
+            "UPDATE authors SET metadata_json = ? WHERE author_id = 1",
+            (json.dumps({"karma": 1234}),),
         )
         conn.execute(
             """
@@ -55,6 +64,12 @@ def _seed_digest(db_path):
             VALUES (1, 1, 1, 0.8123, 1, '{}')
             """
         )
+        conn.execute(
+            """
+            INSERT INTO item_content (item_id, content_type, content_text, source)
+            VALUES (1, 'top_comment', 'This is the strongest reader reaction. More detail follows.', 'hackernews')
+            """
+        )
         conn.commit()
     finally:
         conn.close()
@@ -72,8 +87,57 @@ def test_render_digest_text_groups_items_by_topic(tmp_path):
     assert "*AI*" in text
     assert "- [ ] Useful ranking systems" in text
     assert "topic: 0.812" in text
+    assert "published: 2026-05-13" in text
+    assert "karma: 1,234" in text
+    assert "💬 This is the strongest reader reaction." in text
     assert "🔗 https://example.com/story" in text
     assert "→ HN: https://news.ycombinator.com/item?id=123" in text
+
+
+def test_render_digest_text_external_hides_internal_metadata(tmp_path):
+    db_path = tmp_path / "target.db"
+    _seed_digest(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("UPDATE users SET identifier = 'mikey' WHERE user_id = 1")
+        conn.commit()
+    finally:
+        conn.close()
+
+    digest, rows = load_digest_items(str(db_path), user="mikey", digest_id=1)
+    text = render_digest_text(digest, rows)
+
+    assert "digest_id" not in text
+    assert "topic: 0.812" not in text
+    assert "Notes:" not in text
+    assert "published: 2026-05-13" in text
+    assert "source: hackernews" in text
+
+
+def test_render_digest_text_external_empty_digest_raises(tmp_path):
+    db_path = tmp_path / "target.db"
+    init_target_schema(str(db_path))
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("INSERT INTO users (identifier, timezone) VALUES ('mikey', 'America/New_York')")
+        conn.execute(
+            """
+            INSERT INTO digests (user_id, generated_at, status, metadata_json)
+            VALUES (1, '2026-05-13T12:00:00', 'generated', '{}')
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    digest, rows = load_digest_items(str(db_path), user="mikey", digest_id=1)
+
+    try:
+        render_digest_text(digest, rows)
+    except NoDigestItemsError:
+        pass
+    else:
+        raise AssertionError("expected NoDigestItemsError")
 
 
 def test_render_digest_file_is_feedback_sync_compatible(tmp_path):
@@ -95,9 +159,9 @@ def test_render_digest_file_is_feedback_sync_compatible(tmp_path):
     conn = sqlite3.connect(db_path)
     try:
         row = conn.execute(
-            "SELECT item_id, digest_id, action FROM feedback WHERE action = 'read'"
+            "SELECT item_id, digest_id, action FROM feedback"
         ).fetchone()
-        assert row == (1, 1, "read")
+        assert row == (1, 1, "read_with_note")
     finally:
         conn.close()
 

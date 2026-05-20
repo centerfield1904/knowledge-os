@@ -17,6 +17,7 @@ USER_ID="vb"
 MAX_ITEMS="20"
 OUTPUT=""
 OVERWRITE=false
+SKIP_INGEST=false
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -29,6 +30,7 @@ while [ "$#" -gt 0 ]; do
         --max-items) MAX_ITEMS="$2"; shift 2 ;;
         --output) OUTPUT="$2"; shift 2 ;;
         --overwrite) OVERWRITE=true; shift ;;
+        --skip-ingest) SKIP_INGEST=true; shift ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
@@ -46,8 +48,12 @@ run_sbt() {
 log_step "Initializing schema"
 "$PYTHON" -m knowledge_os.schema --db "$DB"
 
-log_step "Running catalog ingestion"
-run_sbt "runMain knowledgeos.Ingest --db $DB --sources $SOURCES_CONFIG"
+if $SKIP_INGEST; then
+    log_step "Skipping catalog ingestion"
+else
+    log_step "Running catalog ingestion"
+    run_sbt "runMain knowledgeos.Ingest --db $DB --sources $SOURCES_CONFIG"
+fi
 
 log_step "Materializing persona topics and subscriptions"
 "$PYTHON" -m knowledge_os.personas --db "$DB" --catalog "$PERSONA_CATALOG" --user-config "$USER_CONFIG"

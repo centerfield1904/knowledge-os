@@ -7,8 +7,8 @@
   },
   "subscriptions": {
     "defaults": {
-      "min_topic_score": 0.35,
-      "freshness_days": 7,
+      "min_topic_score": 0.42,
+      "freshness_days": 10,
       "sources": ["hackernews", "substack"],
       "authors": { "allow": [], "deny": [] },
       "max_items": 8,

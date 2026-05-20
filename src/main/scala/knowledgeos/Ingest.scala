@@ -5,6 +5,7 @@ import java.time.Instant
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.concurrent.duration.Duration
 import scala.util.control.NonFatal
+import scala.xml.{Node, XML}
 
 object Ingest:
   private def log(message: String): Unit =
@@ -29,6 +30,14 @@ object Ingest:
       maxItems: Int,
       concurrency: Int,
       throttleMs: Int,
+      requestTimeoutMs: Int,
+      retries: Int
+  )
+
+  case class FeedConfig(
+      url: String,
+      name: Option[String],
+      maxItems: Int,
       requestTimeoutMs: Int,
       retries: Int
   )
@@ -77,6 +86,33 @@ object Ingest:
             s"timeoutMs=${fetchConfig.requestTimeoutMs}, retries=${fetchConfig.retries}"
         )
         futures += Future(fetchHackerNews(fetchConfig))
+    }
+
+    sources.obj.get("substack").foreach { substack =>
+      if substack("enabled").bool then
+        val maxItems = substack.obj.get("max_items_per_feed")
+          .orElse(substack.obj.get("max_items"))
+          .map(_.num.toInt)
+          .getOrElse(10)
+        val requestTimeoutMs = substack.obj.get("request_timeout_ms").map(_.num.toInt).getOrElse(15000)
+        val retries = substack.obj.get("retries").map(_.num.toInt).getOrElse(1)
+        val feeds = substack.obj.get("feeds").map(_.arr.toVector).getOrElse(Vector.empty).flatMap {
+          case feed if feed.isInstanceOf[ujson.Str] =>
+            Some(FeedConfig(feed.str, None, maxItems, requestTimeoutMs, retries))
+          case feed if feed.isInstanceOf[ujson.Obj] =>
+            feed.obj.get("url").map { url =>
+              FeedConfig(
+                url = url.str,
+                name = feed.obj.get("name").map(_.str),
+                maxItems = feed.obj.get("max_items").map(_.num.toInt).getOrElse(maxItems),
+                requestTimeoutMs = feed.obj.get("request_timeout_ms").map(_.num.toInt).getOrElse(requestTimeoutMs),
+                retries = feed.obj.get("retries").map(_.num.toInt).getOrElse(retries)
+              )
+            }
+          case _ => None
+        }
+        log(s"Configured Substack/RSS fetch: feeds=${feeds.size}, maxItemsPerFeed=$maxItems")
+        futures += Future(fetchRssFeeds(feeds))
     }
 
     val result = Future.sequence(futures.result()).map(_.flatten.toVector)
@@ -226,6 +262,108 @@ object Ingest:
           remaining -= 1
           Thread.sleep(250L)
     None
+
+  def fetchRssFeeds(feeds: Vector[FeedConfig]): Vector[Story] =
+    feeds.flatMap { feed =>
+      retry(feed.retries) {
+        log(s"Fetching feed ${feed.url}")
+        val body = requests
+          .get(feed.url, readTimeout = feed.requestTimeoutMs, connectTimeout = feed.requestTimeoutMs)
+          .text()
+        val stories = rssStoriesFromXml(body, feed)
+        log(s"Feed ${feed.url} produced ${stories.size} item(s)")
+        stories
+      }.getOrElse(Vector.empty)
+    }
+
+  def rssStoriesFromXml(xmlText: String, feed: FeedConfig): Vector[Story] =
+    val root = XML.loadString(xmlText)
+    val entries = (root \\ "item").toVector match
+      case Vector() => (root \\ "entry").toVector
+      case items => items
+
+    entries.take(feed.maxItems).flatMap { entry =>
+      val title = text(entry, "title")
+      val url = rssEntryUrl(entry)
+      if title.isEmpty || url.isEmpty then None
+      else
+        val author = firstNonEmpty(
+          text(entry, "author"),
+          text(entry, "creator"),
+          text(entry, "dc:creator"),
+          feed.name.getOrElse(hostFromUrl(feed.url))
+        )
+        val publishedAt = firstNonEmpty(
+          text(entry, "pubDate"),
+          text(entry, "published"),
+          text(entry, "updated")
+        )
+        val summary = firstNonEmpty(
+          text(entry, "description"),
+          text(entry, "summary"),
+          text(entry, "content"),
+          text(entry, "content:encoded")
+        )
+        Some(
+          Story(
+            title = normalizeWhitespace(title),
+            url = url,
+            source = "substack",
+            externalId = Some(url),
+            authorName = normalizeWhitespace(author),
+            score = 0,
+            commentCount = 0,
+            itemText = Some(stripHtml(summary)).filter(_.nonEmpty),
+            publishedAt = Some(normalizeFeedDate(publishedAt)).filter(_.nonEmpty),
+            metadataJson = ujson.Obj(
+              "feed_url" -> feed.url,
+              "feed_name" -> feed.name.getOrElse(hostFromUrl(feed.url)),
+              "raw_published_at" -> publishedAt
+            ).render()
+          )
+        )
+    }
+
+  private def text(node: Node, label: String): String =
+    val direct = (node \ label).headOption.map(_.text.trim).getOrElse("")
+    if direct.nonEmpty then direct
+    else
+      val suffix = label.stripPrefix("dc:").stripPrefix("content:")
+      node.child.collectFirst {
+        case child: Node if child.label == suffix || child.label == label => child.text.trim
+      }.getOrElse("")
+
+  private def rssEntryUrl(entry: Node): String =
+    val linkText = text(entry, "link")
+    if linkText.nonEmpty then linkText
+    else
+      (entry \ "link")
+        .flatMap(node => node.attribute("href").map(_.text))
+        .headOption
+        .getOrElse("")
+
+  private def firstNonEmpty(values: String*): String =
+    values.find(_.trim.nonEmpty).map(_.trim).getOrElse("")
+
+  private def stripHtml(value: String): String =
+    normalizeWhitespace(value.replaceAll("<[^>]+>", " "))
+
+  private def normalizeWhitespace(value: String): String =
+    value.replaceAll("\\s+", " ").trim
+
+  private def normalizeFeedDate(value: String): String =
+    val trimmed = value.trim
+    if trimmed.isEmpty then ""
+    else
+      try Instant.parse(trimmed).toString
+      catch
+        case _: Throwable =>
+          try java.time.ZonedDateTime.parse(trimmed, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant.toString
+          catch case _: Throwable => trimmed
+
+  private def hostFromUrl(url: String): String =
+    try Option(java.net.URI(url).getHost).getOrElse("unknown").stripPrefix("www.")
+    catch case _: Throwable => "unknown"
 
   def upsertStory(conn: Connection, story: Story): Unit =
     val authorId = upsertAuthor(conn, story.source, story.authorName)

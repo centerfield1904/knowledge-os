@@ -1,5 +1,5 @@
 #!/bin/bash
-# Commit/push one rendered digest and print its GitHub URL.
+# Print a WhatsApp delivery prompt for an already-rendered digest.
 set -euo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -7,7 +7,7 @@ PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
 cd "$PROJECT_ROOT"
 
 USER_ID=""
-DATE="$(date +%Y-%m-%d)"
+DATE="$(date +%F)"
 REMOTE="origin"
 BRANCH="$(git branch --show-current)"
 
@@ -32,15 +32,36 @@ if [ ! -f "$path" ]; then
     exit 1
 fi
 
-item_count="$(grep -c '^- \[ \]' "$path" || true)"
+item_count="$(grep -c '^- \\[ \\]' "$path" || true)"
 if [ "$item_count" -eq 0 ]; then
     echo "Digest has no selected items: $path" >&2
     exit 2
 fi
 
-git add "$path"
-git diff --cached --quiet || git commit -m "digest(${USER_ID}): ${DATE}"
-git push "$REMOTE" "$BRANCH"
-
 repo="$(git remote get-url "$REMOTE" | sed -E 's#git@github.com:#https://github.com/#; s#\.git$##')"
-echo "${repo}/blob/${BRANCH}/${path}"
+url="${repo}/blob/${BRANCH}/${path}"
+
+case "$USER_ID" in
+    kintu)
+        message="Made you a small UX/design digest for today:
+${url}
+
+Did any of these links feel worth opening?"
+        ;;
+    mikey)
+        message="I made you a small AI/LLM digest:
+${url}
+
+Was this too broad, too technical, or roughly right?"
+        ;;
+    *)
+        message="Made you a small digest:
+${url}
+
+Did any of these links feel worth opening?"
+        ;;
+esac
+
+printf 'digest_path: %s\n' "$path"
+printf 'github_url: %s\n\n' "$url"
+printf '%s\n' "$message"

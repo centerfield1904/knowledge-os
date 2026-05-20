@@ -10,9 +10,47 @@
       "retries": 2
     },
     "substack": {
-      "enabled": false,
-      "feeds": [],
-      "max_items_per_feed": 10
+      "enabled": true,
+      "max_items_per_feed": 8,
+      "request_timeout_ms": 15000,
+      "retries": 1,
+      "feeds": [
+        {
+          "name": "UX Collective",
+          "url": "https://newsletter.uxdesign.cc/feed",
+          "max_items": 8
+        },
+        {
+          "name": "Nielsen Norman Group",
+          "url": "https://www.nngroup.com/feed/rss/",
+          "max_items": 8
+        },
+        {
+          "name": "The Looking Glass",
+          "url": "https://lg.substack.com/feed",
+          "max_items": 6
+        },
+        {
+          "name": "Proof of Concept",
+          "url": "https://www.proofofconcept.pub/feed",
+          "max_items": 6
+        },
+        {
+          "name": "Some Designers",
+          "url": "https://somedesigners.substack.com/feed",
+          "max_items": 6
+        },
+        {
+          "name": "Digital Psychology AI",
+          "url": "https://digitalpsychologyai.substack.com/feed",
+          "max_items": 6
+        },
+        {
+          "name": "Soren Iverson",
+          "url": "https://soreniverson.substack.com/feed",
+          "max_items": 6
+        }
+      ]
     }
   }
 }

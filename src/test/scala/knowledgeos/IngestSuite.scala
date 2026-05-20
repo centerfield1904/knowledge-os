@@ -129,6 +129,40 @@ class IngestSuite extends munit.FunSuite:
     assertEquals(story.score, 100)
   }
 
+  test("rssStoriesFromXml normalizes feed items") {
+    val xml =
+      """
+      <rss>
+        <channel>
+          <item>
+            <title>Designing useful onboarding</title>
+            <link>https://example.com/onboarding</link>
+            <author>Design Feed</author>
+            <pubDate>Fri, 15 May 2026 09:00:00 GMT</pubDate>
+            <description><![CDATA[<p>Onboarding should earn attention.</p>]]></description>
+          </item>
+        </channel>
+      </rss>
+      """
+    val feed = Ingest.FeedConfig(
+      url = "https://example.com/feed",
+      name = Some("Example Design"),
+      maxItems = 5,
+      requestTimeoutMs = 1000,
+      retries = 0
+    )
+
+    val stories = Ingest.rssStoriesFromXml(xml, feed)
+
+    assertEquals(stories.size, 1)
+    assertEquals(stories.head.title, "Designing useful onboarding")
+    assertEquals(stories.head.url, "https://example.com/onboarding")
+    assertEquals(stories.head.source, "substack")
+    assertEquals(stories.head.authorName, "Design Feed")
+    assertEquals(stories.head.publishedAt, Some("2026-05-15T09:00:00Z"))
+    assertEquals(stories.head.itemText, Some("Onboarding should earn attention."))
+  }
+
   test("retry returns None after failures instead of throwing") {
     var attempts = 0
     val result = Ingest.retry(retries = 1) {

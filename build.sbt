@@ -8,6 +8,7 @@ lazy val root = (project in file("."))
       "com.lihaoyi" %% "ujson" % "4.0.2",
       "com.lihaoyi" %% "os-lib" % "0.11.3",
       "com.lihaoyi" %% "requests" % "0.9.0",
+      "org.scala-lang.modules" %% "scala-xml" % "2.3.0",
       "org.scalameta" %% "munit" % "1.0.2" % Test
     )
   )
