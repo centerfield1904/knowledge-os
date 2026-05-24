@@ -1,0 +1,85 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Scala: ingest pipeline",
+      "type": "scala",
+      "request": "launch",
+      "mainClass": "knowledgeos.Ingest",
+      "buildTarget": "file:/Users/vb/.openclaw/workspace/knowledge-os/?id=root",
+      "args": [
+        "--db",
+        "knowledge_os.debug.db",
+        "--sources",
+        "config/sources.example.json"
+      ],
+      "jvmOptions": [
+        "--enable-native-access=ALL-UNNAMED"
+      ],
+      "env": {},
+      "stopOnEntry": true
+    },
+    {
+      "name": "Python: topic scoring",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "knowledge_os.topic_scoring",
+      "args": [
+        "--db",
+        "knowledge_os.db",
+        "--config",
+        "config/topic_scoring.example.json"
+      ],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Python: render digest",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "knowledge_os.render_digest",
+      "args": [
+        "--db",
+        "knowledge_os.db",
+        "--user",
+        "vb",
+        "--digest-id",
+        "1"
+      ],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Python: dashboard",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "streamlit",
+      "args": [
+        "run",
+        "src/knowledge_os/dashboard.py"
+      ],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Python: current file",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "console": "integratedTerminal"
+    }
+  ]
+}

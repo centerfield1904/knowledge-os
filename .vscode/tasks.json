@@ -1,0 +1,81 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Install Python dependencies",
+      "type": "shell",
+      "command": "uv pip install -e . -r requirements.txt --python venv/bin/python && uv pip install -r requirements-dev.txt --python venv/bin/python",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: Python unit suite",
+      "type": "shell",
+      "command": "venv/bin/python -m pytest tests/ -v -m \"not integration\"",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: Scala suite",
+      "type": "shell",
+      "command": "sbt test",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run: legacy digest",
+      "type": "shell",
+      "command": "bash scripts/run_digest_v2.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run: legacy digest fetch-only",
+      "type": "shell",
+      "command": "bash scripts/run_digest_v2.sh --fetch-only",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run: catalog ingest debug DB",
+      "type": "shell",
+      "command": "sbt --error \"runMain knowledgeos.Ingest --db knowledge_os.debug.db --sources config/sources.example.json\"",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run: modular digest for VB",
+      "type": "shell",
+      "command": "bash scripts/run_modular_digest.sh --db knowledge_os.db --user vb --overwrite",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run: dashboard",
+      "type": "shell",
+      "command": "venv/bin/python -m streamlit run src/knowledge_os/dashboard.py",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Inspect: catalog",
+      "type": "shell",
+      "command": "bash scripts/query_catalog.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "Inspect: scoring",
+      "type": "shell",
+      "command": "bash scripts/query_scoring.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "Inspect: VB subscriptions",
+      "type": "shell",
+      "command": "bash scripts/query_subscriptions.sh --user vb",
+      "problemMatcher": []
+    },
+    {
+      "label": "Inspect: digest",
+      "type": "shell",
+      "command": "bash scripts/query_digest.sh",
+      "problemMatcher": []
+    }
+  ]
+}

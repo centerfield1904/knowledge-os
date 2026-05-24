@@ -1,0 +1,38 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/venv/bin/python",
+  "python.terminal.activateEnvironment": false,
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": [
+    "tests",
+    "-m",
+    "not integration"
+  ],
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/src"
+  ],
+  "terminal.integrated.env.osx": {
+    "PYTHONPATH": "${workspaceFolder}/src",
+    "JAVA_HOME": "/opt/homebrew/opt/openjdk"
+  },
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    ".pytest_cache": true,
+    ".metals": true,
+    ".bsp": true,
+    "target": true
+  },
+  "search.exclude": {
+    "archive": true,
+    "target": true,
+    ".metals": true,
+    ".bsp": true,
+    "venv": true
+  },
+  "metals.sbtScript": "sbt",
+  "metals.javaHome": "/opt/homebrew/opt/openjdk",
+  "files.watcherExclude": {
+    "**/target": true
+  }
+}

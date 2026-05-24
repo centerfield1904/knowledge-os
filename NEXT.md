@@ -142,3 +142,8 @@ Dated record of what closed each session. Read by `/week-review` to compute proj
 
 ### 2026-05-14
 - [x] Persona-driven multi-user config (persona catalog, VB/Kintu/Mikey configs, materializer, user/all-user runners, user-scoped digest paths)
+
+### 2026-05-24
+- [x] Add VS Code workspace setup for the mixed Python/Scala project (`.vscode/settings.json`, recommended extensions, tasks, and debug launch configs)
+- [x] Validate Scala ingest debugging through Metals with `knowledgeos.Ingest --db knowledge_os.debug.db --sources config/sources.example.json`
+- [x] Confirm catalog ingest run writes to a debug SQLite DB without touching `knowledge_os.db` (136 catalog items upserted in the smoke run)
