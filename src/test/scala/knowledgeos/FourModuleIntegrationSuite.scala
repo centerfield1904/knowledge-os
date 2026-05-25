@@ -49,12 +49,6 @@ class FourModuleIntegrationSuite extends munit.FunSuite:
         )
         """,
         """
-        CREATE TABLE users (
-          user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-          identifier TEXT NOT NULL UNIQUE
-        )
-        """,
-        """
         CREATE TABLE topics (
           topic_id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL UNIQUE,
@@ -79,54 +73,11 @@ class FourModuleIntegrationSuite extends munit.FunSuite:
           evidence_json TEXT,
           PRIMARY KEY (item_id, topic_id, scoring_config_id)
         )
-        """,
-        """
-        CREATE TABLE user_topic_subscriptions (
-          subscription_id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER NOT NULL,
-          topic_id INTEGER NOT NULL,
-          min_topic_score REAL DEFAULT 0.3,
-          author_filter_json TEXT,
-          source_filter_json TEXT,
-          freshness_days INTEGER DEFAULT 7,
-          max_items INTEGER DEFAULT 10,
-          suppress_delivered INTEGER DEFAULT 1,
-          active INTEGER DEFAULT 1
-        )
-        """,
-        """
-        CREATE TABLE digests (
-          digest_id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER NOT NULL,
-          status TEXT DEFAULT 'generated',
-          metadata_json TEXT
-        )
-        """,
-        """
-        CREATE TABLE digest_items (
-          digest_id INTEGER NOT NULL,
-          item_id INTEGER NOT NULL,
-          topic_id INTEGER,
-          topic_score REAL,
-          rank INTEGER NOT NULL,
-          selection_reason_json TEXT,
-          PRIMARY KEY (digest_id, item_id)
-        )
-        """,
-        """
-        CREATE TABLE feedback (
-          feedback_id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER NOT NULL,
-          item_id INTEGER NOT NULL,
-          digest_id INTEGER,
-          action TEXT NOT NULL,
-          metadata_json TEXT
-        )
         """
       ).foreach(sql => Db.execute(conn, sql))
     }
 
-  test("catalog scoring subscriptions and engagement compose through the target schema") {
+  test("catalog ingestion composes with scored topic rows") {
     val db = tempDb()
     initTargetSchema(db)
 
@@ -153,7 +104,6 @@ class FourModuleIntegrationSuite extends munit.FunSuite:
         VALUES (1, 'comments', 'Readers discuss concurrency and ranking.', '{}')
         """
       )
-      Db.execute(conn, "INSERT INTO users (identifier) VALUES ('vb')")
       Db.execute(conn, "INSERT INTO topics (name, active) VALUES ('Digest Ranking', 1)")
       Db.execute(
         conn,
@@ -170,31 +120,18 @@ class FourModuleIntegrationSuite extends munit.FunSuite:
         VALUES (1, 1, 1, 0.92, '{"matched_content":["comments"]}')
         """
       )
-      Db.execute(
+      val scored = Db.query(
         conn,
         """
-        INSERT INTO user_topic_subscriptions
-          (user_id, topic_id, min_topic_score, author_filter_json, source_filter_json,
-           freshness_days, max_items, suppress_delivered, active)
-        VALUES (1, 1, 0.7, '{"deny":[]}', '["hackernews"]', 30, 5, 1, 1)
-        """
-      )
+        SELECT i.title, t.name, s.score
+        FROM item_topic_scores s
+        JOIN items i ON i.item_id = s.item_id
+        JOIN topics t ON t.topic_id = s.topic_id
+        """,
+      ) { rs =>
+        (rs.getString("title"), rs.getString("name"), rs.getDouble("score"))
+      }
 
-      val digestId = GenerateDigest.createDigest(conn, userId = 1)
-      val selected = GenerateDigest.selectCandidates(conn, userId = 1, maxItems = 5)
-      GenerateDigest.writeDigestItems(conn, digestId, userId = 1, selected)
-
-      assertEquals(selected.map(_.title), Vector("Scala ranks digest candidates"))
-      assertEquals(selected.map(_.topicScore), Vector(0.92))
-
-      val digestRows = Db.query(conn, "SELECT item_id, topic_id, rank FROM digest_items WHERE digest_id = ?", Seq(digestId))(
-        rs => (rs.getInt("item_id"), rs.getInt("topic_id"), rs.getInt("rank"))
-      )
-      val delivered = Db.query(conn, "SELECT action FROM feedback WHERE digest_id = ?", Seq(digestId))(
-        _.getString("action")
-      )
-
-      assertEquals(digestRows, Vector((1, 1, 1)))
-      assertEquals(delivered, Vector("delivered"))
+      assertEquals(scored, Vector(("Scala ranks digest candidates", "Digest Ranking", 0.92)))
     }
   }

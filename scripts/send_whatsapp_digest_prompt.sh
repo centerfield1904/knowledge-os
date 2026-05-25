@@ -1,22 +1,21 @@
 #!/bin/bash
-# Print a WhatsApp delivery prompt for an already-rendered digest.
+# Print a WhatsApp delivery prompt linking to the persona-filtered website view.
 set -euo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
 cd "$PROJECT_ROOT"
 
+PYTHON="${PYTHON:-$PROJECT_ROOT/venv/bin/python}"
 USER_ID=""
 DATE="$(date +%F)"
-REMOTE="origin"
-BRANCH="$(git branch --show-current)"
+BASE_URL="https://www.bvaibhav.info/knos-digest"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --user) USER_ID="$2"; shift 2 ;;
         --date) DATE="$2"; shift 2 ;;
-        --remote) REMOTE="$2"; shift 2 ;;
-        --branch) BRANCH="$2"; shift 2 ;;
+        --base-url) BASE_URL="$2"; shift 2 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
@@ -26,42 +25,19 @@ if [ -z "$USER_ID" ]; then
     exit 1
 fi
 
-path="knos-digest/${USER_ID}/${DATE}.md"
-if [ ! -f "$path" ]; then
-    echo "Digest not found: $path" >&2
+user_config="configs/users/${USER_ID}.json"
+if [ ! -f "$user_config" ]; then
+    echo "User config not found: $user_config" >&2
     exit 1
 fi
 
-item_count="$(grep -c '^- \\[ \\]' "$path" || true)"
-if [ "$item_count" -eq 0 ]; then
-    echo "Digest has no selected items: $path" >&2
-    exit 2
+digest_path="knos-digest/${DATE}.md"
+if [ ! -f "$digest_path" ]; then
+    echo "Digest not found: $digest_path" >&2
+    exit 1
 fi
 
-repo="$(git remote get-url "$REMOTE" | sed -E 's#git@github.com:#https://github.com/#; s#\.git$##')"
-url="${repo}/blob/${BRANCH}/${path}"
-
-case "$USER_ID" in
-    kintu)
-        message="Made you a small UX/design digest for today:
-${url}
-
-Did any of these links feel worth opening?"
-        ;;
-    mikey)
-        message="I made you a small AI/LLM digest:
-${url}
-
-Was this too broad, too technical, or roughly right?"
-        ;;
-    *)
-        message="Made you a small digest:
-${url}
-
-Did any of these links feel worth opening?"
-        ;;
-esac
-
-printf 'digest_path: %s\n' "$path"
-printf 'github_url: %s\n\n' "$url"
-printf '%s\n' "$message"
+"$PYTHON" -m knowledge_os.persona_digest whatsapp \
+    --user-config "$user_config" \
+    --digest "$digest_path" \
+    --base-url "$BASE_URL"

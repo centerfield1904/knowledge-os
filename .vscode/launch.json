@@ -37,17 +37,17 @@
       "console": "integratedTerminal"
     },
     {
-      "name": "Python: render digest",
+      "name": "Python: render persona digest",
       "type": "debugpy",
       "request": "launch",
-      "module": "knowledge_os.render_digest",
+      "module": "knowledge_os.persona_digest",
       "args": [
+        "render",
         "--db",
         "knowledge_os.db",
-        "--user",
-        "vb",
-        "--digest-id",
-        "1"
+        "--catalog",
+        "personas/catalog.json",
+        "--overwrite"
       ],
       "cwd": "${workspaceFolder}",
       "env": {

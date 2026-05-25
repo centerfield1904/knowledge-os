@@ -2,27 +2,10 @@
   "user": {
     "identifier": "kintu",
     "timezone": "Asia/Calcutta",
-    "personas": ["ux_design"],
-    "personal_topics": []
-  },
-  "subscriptions": {
-    "defaults": {
-      "min_topic_score": 0.32,
-      "freshness_days": 14,
-      "sources": ["hackernews", "substack"],
-      "authors": { "allow": [], "deny": [] },
-      "max_items": 8,
-      "suppress_delivered": true
-    }
-  },
-  "digest": {
-    "cadence": "biweekly",
-    "send_days": ["tue", "fri"],
-    "max_items": 12,
-    "format": "markdown"
+    "personas": ["ux_design"]
   },
   "delivery": {
-    "type": "github_markdown",
-    "path": "knos-digest/kintu"
+    "type": "website_link",
+    "base_url": "https://www.bvaibhav.info/knos-digest"
   }
 }

@@ -2,6 +2,12 @@
   "personas": {
     "software_eng": {
       "name": "Software Engineer",
+      "selection": {
+        "min_topic_score": 0.35,
+        "freshness_days": 7,
+        "sources": ["hackernews", "substack"],
+        "max_items": 8
+      },
       "topics": [
         {
           "name": "Software Engineering",
@@ -12,6 +18,12 @@
     },
     "data_eng": {
       "name": "Data Engineer",
+      "selection": {
+        "min_topic_score": 0.35,
+        "freshness_days": 7,
+        "sources": ["hackernews", "substack"],
+        "max_items": 8
+      },
       "topics": [
         {
           "name": "Data Engineering",
@@ -22,6 +34,12 @@
     },
     "data_scientist": {
       "name": "Data Scientist",
+      "selection": {
+        "min_topic_score": 0.35,
+        "freshness_days": 7,
+        "sources": ["hackernews", "substack"],
+        "max_items": 8
+      },
       "topics": [
         {
           "name": "Data Science",
@@ -32,6 +50,12 @@
     },
     "ai_researcher": {
       "name": "AI / ML Researcher",
+      "selection": {
+        "min_topic_score": 0.42,
+        "freshness_days": 10,
+        "sources": ["hackernews", "substack"],
+        "max_items": 8
+      },
       "topics": [
         {
           "name": "AI Research",
@@ -42,6 +66,12 @@
     },
     "llm_researcher": {
       "name": "LLM Researcher",
+      "selection": {
+        "min_topic_score": 0.42,
+        "freshness_days": 10,
+        "sources": ["hackernews", "substack"],
+        "max_items": 8
+      },
       "topics": [
         {
           "name": "AI/ML/LLMs",
@@ -52,6 +82,12 @@
     },
     "pm": {
       "name": "Product Manager",
+      "selection": {
+        "min_topic_score": 0.35,
+        "freshness_days": 7,
+        "sources": ["hackernews", "substack"],
+        "max_items": 8
+      },
       "topics": [
         {
           "name": "Product Strategy",
@@ -62,6 +98,12 @@
     },
     "ux_design": {
       "name": "UX / Design",
+      "selection": {
+        "min_topic_score": 0.32,
+        "freshness_days": 14,
+        "sources": ["hackernews", "substack"],
+        "max_items": 8
+      },
       "topics": [
         {
           "name": "UX / Design",
@@ -72,6 +114,12 @@
     },
     "applied_math": {
       "name": "Applied Mathematician",
+      "selection": {
+        "min_topic_score": 0.35,
+        "freshness_days": 7,
+        "sources": ["hackernews", "substack"],
+        "max_items": 8
+      },
       "topics": [
         {
           "name": "Applied Math",
@@ -82,6 +130,12 @@
     },
     "swe_infra": {
       "name": "Infrastructure / Platform",
+      "selection": {
+        "min_topic_score": 0.35,
+        "freshness_days": 7,
+        "sources": ["hackernews", "substack"],
+        "max_items": 8
+      },
       "topics": [
         {
           "name": "Infrastructure / Platform",
@@ -92,6 +146,12 @@
     },
     "startup_founder": {
       "name": "Founding Engineer",
+      "selection": {
+        "min_topic_score": 0.35,
+        "freshness_days": 7,
+        "sources": ["hackernews", "substack"],
+        "max_items": 8
+      },
       "topics": [
         {
           "name": "Startups / Founding",
@@ -102,11 +162,33 @@
     },
     "philosopher": {
       "name": "Philosophy / Thinking",
+      "selection": {
+        "min_topic_score": 0.35,
+        "freshness_days": 7,
+        "sources": ["hackernews", "substack"],
+        "max_items": 8
+      },
       "topics": [
         {
           "name": "Philosophy/Thinking Tools",
           "description": "Epistemology, decision theory, rationality, mental models, and systems thinking.",
           "keywords": ["philosophy", "epistemology", "decision theory", "rationality", "mental models", "systems thinking", "reasoning"]
+        }
+      ]
+    },
+    "parenting_education": {
+      "name": "Parenting / Education",
+      "selection": {
+        "min_topic_score": 0.35,
+        "freshness_days": 7,
+        "sources": ["hackernews", "substack"],
+        "max_items": 8
+      },
+      "topics": [
+        {
+          "name": "Parenting/Education",
+          "description": "Parenting, learning, child development, schools, and education systems.",
+          "keywords": ["parenting", "education", "children", "learning", "child development", "teaching", "schools", "early childhood"]
         }
       ]
     }

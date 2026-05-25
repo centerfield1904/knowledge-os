@@ -1,0 +1,357 @@
+#!/usr/bin/env python3
+"""Render and summarize the canonical persona-based digest."""
+import argparse
+import json
+import re
+import sqlite3
+import sys
+from collections import OrderedDict
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional
+from urllib.parse import quote
+
+from .personas import _load, persona_selection, validate_catalog
+
+
+BASE_URL = "https://www.bvaibhav.info/knos-digest"
+PERSONA_MARKER_RE = re.compile(r"^<!--\s*knos-persona:\s*([^|]+?)\s*\|\s*(.+?)\s*-->$")
+CHECKBOX_RE = re.compile(r"^- \[[ Xx]\]\s+(.+)$")
+
+
+def _log(message: str) -> None:
+    print(f"[{datetime.now().isoformat(timespec='seconds')}] [persona_digest] {message}", file=sys.stderr)
+
+
+@dataclass(frozen=True)
+class PersonaTopic:
+    persona_id: str
+    persona_name: str
+    topic_name: str
+    selection: Dict
+
+
+@dataclass(frozen=True)
+class Candidate:
+    persona_id: str
+    persona_name: str
+    topic_name: str
+    topic_score: float
+    item_id: int
+    title: str
+    url: str
+    source: str
+    external_id: str
+    author_name: str
+    item_score: int
+    published_at: str
+
+
+def _catalog_topics(catalog: Dict) -> Dict[str, PersonaTopic]:
+    validate_catalog(catalog)
+    topics: Dict[str, PersonaTopic] = {}
+    for persona_id, persona in catalog.get("personas", {}).items():
+        for topic in persona.get("topics", []):
+            topics[topic["name"].strip().lower()] = PersonaTopic(
+                persona_id=persona_id,
+                persona_name=persona.get("name", persona_id),
+                topic_name=topic["name"],
+                selection=persona_selection(persona),
+            )
+    return topics
+
+
+def _parse_dt(value: str) -> Optional[datetime]:
+    if not value:
+        return None
+    normalized = value.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
+def _published_date(value: str) -> str:
+    parsed = _parse_dt(value)
+    return parsed.date().isoformat() if parsed else "unknown"
+
+
+def _passes_selection(candidate: Candidate, selection: Dict, today: date) -> bool:
+    if candidate.topic_score < float(selection.get("min_topic_score", 0.35)):
+        return False
+    sources = selection.get("sources") or []
+    if sources and candidate.source not in sources:
+        return False
+    freshness_days = selection.get("freshness_days")
+    if freshness_days is not None:
+        published = _parse_dt(candidate.published_at)
+        if published and published.date() < today - timedelta(days=int(freshness_days)):
+            return False
+    return True
+
+
+def _candidate_sort_key(candidate: Candidate) -> tuple:
+    published = _parse_dt(candidate.published_at) or datetime.min
+    return (-candidate.topic_score, -candidate.item_score, -published.toordinal(), candidate.title)
+
+
+def select_persona_items(db_path: str, catalog_path: str, today: Optional[date] = None) -> List[Candidate]:
+    """Select one canonical persona assignment per item from precomputed topic scores."""
+    today = today or date.today()
+    catalog = _load(catalog_path)
+    topics = _catalog_topics(catalog)
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                i.item_id,
+                i.title,
+                i.url,
+                i.source,
+                COALESCE(i.external_id, '') AS external_id,
+                COALESCE(i.author_name, '') AS author_name,
+                COALESCE(i.score, 0) AS item_score,
+                COALESCE(i.published_at, i.fetched_at) AS published_at,
+                t.name AS topic_name,
+                MAX(s.score) AS topic_score
+            FROM item_topic_scores s
+            JOIN topics t ON t.topic_id = s.topic_id
+            JOIN items i ON i.item_id = s.item_id
+            WHERE t.active = 1
+            GROUP BY i.item_id, t.topic_id
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    candidates: List[Candidate] = []
+    for row in rows:
+        topic = topics.get(row["topic_name"].strip().lower())
+        if topic is None:
+            continue
+        candidate = Candidate(
+            persona_id=topic.persona_id,
+            persona_name=topic.persona_name,
+            topic_name=topic.topic_name,
+            topic_score=float(row["topic_score"]),
+            item_id=int(row["item_id"]),
+            title=row["title"],
+            url=row["url"],
+            source=row["source"],
+            external_id=row["external_id"],
+            author_name=row["author_name"],
+            item_score=int(row["item_score"]),
+            published_at=row["published_at"],
+        )
+        if _passes_selection(candidate, topic.selection, today):
+            candidates.append(candidate)
+
+    best_by_item: Dict[int, Candidate] = {}
+    for candidate in sorted(candidates, key=lambda c: (-c.topic_score, c.persona_id, c.topic_name, c.title)):
+        best_by_item.setdefault(candidate.item_id, candidate)
+
+    by_persona: Dict[str, List[Candidate]] = OrderedDict()
+    for persona_id in catalog.get("personas", {}):
+        by_persona[persona_id] = []
+    for candidate in sorted(best_by_item.values(), key=_candidate_sort_key):
+        by_persona.setdefault(candidate.persona_id, []).append(candidate)
+
+    selected: List[Candidate] = []
+    for persona_id, persona in catalog.get("personas", {}).items():
+        max_items = int(persona_selection(persona).get("max_items", 8))
+        selected.extend(sorted(by_persona.get(persona_id, []), key=_candidate_sort_key)[:max_items])
+    return selected
+
+
+def render_persona_digest_text(candidates: Iterable[Candidate], digest_date: str, catalog_path: str) -> str:
+    catalog = _load(catalog_path)
+    candidates = list(candidates)
+    by_persona: Dict[str, List[Candidate]] = OrderedDict((pid, []) for pid in catalog.get("personas", {}))
+    for candidate in candidates:
+        by_persona.setdefault(candidate.persona_id, []).append(candidate)
+
+    visible_personas = [pid for pid, rows in by_persona.items() if rows]
+    lines = [
+        f"🦅 *Knowledge Digest* - {digest_date}",
+        f"_{len(candidates)} selected item{'s' if len(candidates) != 1 else ''} across {len(visible_personas)} persona{'s' if len(visible_personas) != 1 else ''}_",
+        "",
+    ]
+
+    for persona_id, rows in by_persona.items():
+        if not rows:
+            continue
+        persona = catalog["personas"][persona_id]
+        persona_name = persona.get("name", persona_id)
+        lines.append(f"<!-- knos-persona: {persona_id} | {persona_name} -->")
+        lines.append(f"## {persona_name}")
+        lines.append("")
+
+        by_topic: Dict[str, List[Candidate]] = OrderedDict()
+        for row in sorted(rows, key=_candidate_sort_key):
+            by_topic.setdefault(row.topic_name, []).append(row)
+        for topic_name, topic_rows in by_topic.items():
+            lines.append(f"*{topic_name}*")
+            for row in topic_rows:
+                source_icon = "📰 " if row.source == "substack" else ""
+                lines.append(f"- [ ] {source_icon}{row.title}")
+                meta = [f"published: {_published_date(row.published_at)}", f"source: {row.source}"]
+                if row.item_score:
+                    meta.append(f"↑{row.item_score}")
+                if row.author_name:
+                    meta.append(f"by {row.author_name}")
+                lines.append(f"  {' | '.join(meta)}")
+                lines.append(f"  🔗 {row.url}")
+                if row.source == "hackernews" and row.external_id:
+                    lines.append(f"  → HN: https://news.ycombinator.com/item?id={row.external_id}")
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def render_persona_digest_file(
+    db_path: str,
+    catalog_path: str,
+    output: Optional[str] = None,
+    overwrite: bool = False,
+    digest_date: Optional[str] = None,
+) -> Path:
+    digest_date = digest_date or date.today().isoformat()
+    candidates = select_persona_items(db_path, catalog_path, today=date.fromisoformat(digest_date))
+    text = render_persona_digest_text(candidates, digest_date, catalog_path)
+    path = Path(output) if output else Path("knos-digest") / f"{digest_date}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and not overwrite:
+        raise FileExistsError(f"{path} already exists; pass --overwrite to replace it")
+    path.write_text(text)
+    _log(f"Wrote persona digest markdown to {path}")
+    return path
+
+
+def parse_persona_markdown(path: str) -> List[Dict]:
+    current_persona_id = ""
+    current_persona_name = ""
+    current_topic = ""
+    stories: List[Dict] = []
+    for raw_line in Path(path).read_text().splitlines():
+        line = raw_line.strip()
+        marker = PERSONA_MARKER_RE.match(line)
+        if marker:
+            current_persona_id = marker.group(1).strip()
+            current_persona_name = marker.group(2).strip()
+            current_topic = ""
+            continue
+        topic = re.match(r"^\*([^*]+)\*$", line)
+        if topic and current_persona_id:
+            current_topic = topic.group(1)
+            continue
+        checkbox = CHECKBOX_RE.match(line)
+        if checkbox and current_persona_id:
+            title = checkbox.group(1).replace("📰 ", "", 1)
+            stories.append({
+                "persona_id": current_persona_id,
+                "persona_name": current_persona_name,
+                "topic": current_topic,
+                "title": title,
+            })
+    return stories
+
+
+def persona_url(persona_ids: Iterable[str], base_url: str = BASE_URL) -> str:
+    encoded = ",".join(quote(pid, safe="") for pid in persona_ids)
+    return f"{base_url}?personas={encoded}" if encoded else base_url
+
+
+def whatsapp_summary(
+    user_config_path: str,
+    digest_path: str,
+    base_url: Optional[str] = None,
+    headline_limit: int = 3,
+) -> Dict:
+    user_config = _load(user_config_path)
+    user = user_config["user"]
+    personas = user.get("personas", [])
+    selected = [story for story in parse_persona_markdown(digest_path) if story["persona_id"] in personas]
+    topics = []
+    for story in selected:
+        if story["topic"] and story["topic"] not in topics:
+            topics.append(story["topic"])
+    headlines = [story["title"] for story in selected[:headline_limit]]
+    effective_base_url = base_url or user_config.get("delivery", {}).get("base_url") or BASE_URL
+    url = persona_url(personas, effective_base_url)
+    summary = {
+        "digest_path": digest_path,
+        "website_url": url,
+        "user": user["identifier"],
+        "item_count": len(selected),
+        "topics": topics,
+        "headlines": headlines,
+    }
+    if not selected:
+        summary["message"] = f"No digest items matched {user['identifier']}'s persona subscriptions today."
+        return summary
+
+    topic_text = ", ".join(topics[:3])
+    headline_text = "\n".join(f"- {headline}" for headline in headlines)
+    summary["message"] = (
+        f"Made you a small digest: {len(selected)} item{'s' if len(selected) != 1 else ''}"
+        f"{f' across {topic_text}' if topic_text else ''}.\n\n"
+        f"{headline_text}\n\n"
+        f"Read it here: {url}"
+    )
+    return summary
+
+
+def _render_command(args: argparse.Namespace) -> None:
+    path = render_persona_digest_file(
+        db_path=args.db,
+        catalog_path=args.catalog,
+        output=args.output,
+        overwrite=args.overwrite,
+        digest_date=args.date,
+    )
+    print(path)
+
+
+def _whatsapp_command(args: argparse.Namespace) -> None:
+    summary = whatsapp_summary(
+        user_config_path=args.user_config,
+        digest_path=args.digest,
+        base_url=args.base_url,
+    )
+    print(f"digest_path: {summary['digest_path']}")
+    print(f"website_url: {summary['website_url']}")
+    print("")
+    print(summary["message"])
+    if summary["item_count"] == 0:
+        raise SystemExit(2)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Render and summarize persona-based digests.")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    render = sub.add_parser("render")
+    render.add_argument("--db", default="knowledge_os.db")
+    render.add_argument("--catalog", default="personas/catalog.json")
+    render.add_argument("--output")
+    render.add_argument("--overwrite", action="store_true")
+    render.add_argument("--date")
+    render.set_defaults(func=_render_command)
+
+    whatsapp = sub.add_parser("whatsapp")
+    whatsapp.add_argument("--user-config", required=True)
+    whatsapp.add_argument("--digest", required=True)
+    whatsapp.add_argument("--base-url")
+    whatsapp.set_defaults(func=_whatsapp_command)
+
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

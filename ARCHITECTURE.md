@@ -495,14 +495,13 @@ sbt "runMain knowledgeos.Ingest --db knowledge_os.db --sources config/sources.js
 python -m knowledge_os.topic_scoring --db knowledge_os.db --config config/topic_scoring.json
 
 # Persona/subscription materialization only
-python -m knowledge_os.personas --db knowledge_os.db --catalog personas/catalog.json --user-config configs/users/vb.json
+python -m knowledge_os.personas --db knowledge_os.db --catalog personas/catalog.json --users-dir configs/users
 
-# Digest selection/ranking + rendering only
-sbt "runMain knowledgeos.GenerateDigest --db knowledge_os.db --user vb --max-items 20"
-python -m knowledge_os.render_digest --db knowledge_os.db --user vb --digest-id 1
+# Persona digest selection/ranking + rendering only
+python -m knowledge_os.persona_digest render --db knowledge_os.db --catalog personas/catalog.json --overwrite
 
 # Feedback sync only
-python -m knowledge_os.feedback_events --db knowledge_os.db --user vb --source knos-digest/vb/YYYY-MM-DD.md
+python -m knowledge_os.feedback_events --db knowledge_os.db --user vb --source knos-digest/YYYY-MM-DD.md
 ```
 
 ## Implementation Status
@@ -511,16 +510,13 @@ Implemented in this branch:
 
 - Target schema initializer: `python -m knowledge_os.schema --db knowledge_os.db`.
 - Python topic scoring command: `python -m knowledge_os.topic_scoring --db knowledge_os.db --config config/topic_scoring.example.json`.
-- Python persona materializer: `python -m knowledge_os.personas --db knowledge_os.db --catalog personas/catalog.json --user-config configs/users/vb.json`.
-- Python feedback event sync: `python -m knowledge_os.feedback_events --db knowledge_os.db --user vb --source knos-digest/vb/YYYY-MM-DD.md`.
-- Python digest renderer: `python -m knowledge_os.render_digest --db knowledge_os.db --user vb --digest-id 1`.
+- Python persona materializer: `python -m knowledge_os.personas --db knowledge_os.db --catalog personas/catalog.json --users-dir configs/users`.
+- Python feedback event sync: `python -m knowledge_os.feedback_events --db knowledge_os.db --user vb --source knos-digest/YYYY-MM-DD.md`.
+- Python persona digest renderer: `python -m knowledge_os.persona_digest render --db knowledge_os.db --catalog personas/catalog.json`.
 - Scala catalog ingestion entry point: `sbt "runMain knowledgeos.Ingest --db knowledge_os.db --sources config/sources.example.json"`.
-- Scala digest selection/ranking entry point: `sbt "runMain knowledgeos.GenerateDigest --db knowledge_os.db --user vb --max-items 20"`.
-- Modular runner: `bash scripts/run_modular_digest.sh --db knowledge_os.db --user vb --overwrite`.
-- User runner: `bash scripts/run_user_digest.sh --user kintu --overwrite`.
-- All-user runner: `bash scripts/run_all_users.sh --overwrite`.
-- Scala unit tests for item URL dedupe, author upsert, subscription filtering, digest membership writes, and delivered feedback.
-- Scala integration test for the catalog -> scoring -> subscription -> digest -> feedback flow over the target schema.
+- Modular runner: `bash scripts/run_modular_digest.sh --db knowledge_os.db --overwrite`.
+- WhatsApp website-link prompt: `bash scripts/send_whatsapp_digest_prompt.sh --user kintu`.
+- Scala tests cover catalog ingestion; Python tests cover persona selection/rendering.
 
 Verification commands:
 
@@ -537,8 +533,6 @@ Operational query scripts:
 bash scripts/query_catalog.sh
 bash scripts/query_scoring.sh
 bash scripts/query_subscriptions.sh --user vb
-bash scripts/query_digest.sh
-bash scripts/query_digest.sh --digest-id 1
 bash scripts/query_feedback.sh --user vb
 bash scripts/query_catalog.sh --since 2026-05-14 --until 2026-05-14
 bash scripts/query_scoring.sh --topic AI/ML/LLMs --since 2026-05-14
@@ -549,7 +543,7 @@ bash scripts/query_scoring.sh --topic AI/ML/LLMs --since 2026-05-14
 Current implementation gaps relative to this architecture:
 
 - `scripts/run_digest_v2.sh` still fetches, merges, processes, scores, stores, renders, and archives in one legacy production path.
-- Legacy `digest_pipeline.py` still persists items and item-topic scores during digest generation; the new `GenerateDigest` path only reads precomputed scores and writes digest membership plus delivered feedback.
+- Legacy `digest_pipeline.py` still persists items and item-topic scores during digest generation; the canonical persona path reads precomputed scores and renders one website-facing digest artifact.
 - Legacy storage still has older topic/digest shapes; the target schema moves persona/user preference to subscriptions and stores digest membership in `digest_items`.
 - Legacy rendering still sits in the old production path, but the modular renderer now consumes `digest_items`.
 - Engagement-specific summaries can remain, but event ingestion should converge on the common `feedback` table.

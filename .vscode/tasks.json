@@ -41,9 +41,9 @@
       "problemMatcher": []
     },
     {
-      "label": "Run: modular digest for VB",
+      "label": "Run: persona digest",
       "type": "shell",
-      "command": "bash scripts/run_modular_digest.sh --db knowledge_os.db --user vb --overwrite",
+      "command": "bash scripts/run_modular_digest.sh --db knowledge_os.db --overwrite",
       "problemMatcher": []
     },
     {
@@ -69,12 +69,6 @@
       "label": "Inspect: VB subscriptions",
       "type": "shell",
       "command": "bash scripts/query_subscriptions.sh --user vb",
-      "problemMatcher": []
-    },
-    {
-      "label": "Inspect: digest",
-      "type": "shell",
-      "command": "bash scripts/query_digest.sh",
       "problemMatcher": []
     }
   ]

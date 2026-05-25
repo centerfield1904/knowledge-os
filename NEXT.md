@@ -2,8 +2,8 @@
 
 ## Immediate (This Week)
 
-- [ ] **Add side-effect-free digest preview for VB** — `GenerateDigest` currently writes a digest and `delivered` feedback even during dry-run quality checks. Add `--preview` / `--dry-run` mode that returns ranked candidates without inserting into `digests`, `digest_items`, or `feedback`; update launch/smoke scripts to use it.
-- [ ] **Stabilize VB daily digest volume** — Investigate the observed 4-items-then-0-items pattern after modular dry runs. Audit `freshness_days`, `suppress_delivered`, dry-run delivered rows, and scoring coverage; add a query that explains every rejected candidate by filter.
+- [ ] **Add persona digest preview diagnostics** — The canonical persona renderer now selects directly from scored catalog rows. Add a dry-run query that explains every rejected candidate by persona threshold, source, freshness, and exclusive-assignment winner.
+- [ ] **Stabilize persona digest volume** — Audit persona `selection` defaults, source coverage, and scoring coverage so each subscribed persona has enough candidates before WhatsApp summaries link to the website.
 - [ ] **Make topic scoring local/offline safe** — The launch smoke logs showed repeated Hugging Face DNS retries before scoring completed. Add a model-cache preflight, explicit offline/local-model option, clearer failure message, and a short retry policy so daily runs do not hang on network/model resolution.
 - [ ] **Populate modular enrichment data before rendering** — The renderer can show author karma and top-comment blurbs, but the modular path does not reliably populate `authors.metadata_json` or `item_content` yet. Add a separate enrichment step that fills HN author karma, top comments, article summaries, and source annotations without changing ranking.
 - [ ] **Improve Scala RSS/Substack adapter quality** — Current Scala ingestion fetches RSS feeds, but it is still basic: source is always `substack`, feed identity lives only in metadata, HTML entities are not decoded, and per-feed frequency is not honored in the Scala path. Add feed/source tags, robust date parsing, HTML text normalization, and fetch metrics.
@@ -11,11 +11,11 @@
 - [ ] **Add launch health summary command** — One command should report catalog counts, scored-item counts by topic, candidate counts before/after filters, selected count, empty-digest risk, and last catalog refresh time for `vb`, `mikey`, and `kintu`.
 - [x] **Install Scala and verify** — COMPLETE (2026-05-13: Homebrew OpenJDK, SBT, and Scala installed; verified `scala -version`; `sbt test` passes)
 - [x] **Split target architecture into four modules** — COMPLETE (2026-05-13: catalog/ingestion, topic scoring, subscriptions/digests, feedback/engagement documented in ARCHITECTURE.md)
-- [x] **Add target schema and modular commands** — COMPLETE (2026-05-13: `knowledge_os.schema`, `topic_scoring`, `subscriptions`, `feedback_events`; Scala `knowledgeos.Ingest` and `knowledgeos.GenerateDigest`)
+- [x] **Add target schema and modular commands** — COMPLETE (2026-05-13: `knowledge_os.schema`, `topic_scoring`, `subscriptions`, `feedback_events`; Scala `knowledgeos.Ingest`)
 - [x] **Add Scala unit and integration tests** — COMPLETE (2026-05-13: URL dedupe, author upsert, subscription filtering, digest writes, delivered feedback, and full four-module DB flow)
-- [x] **Wire modular runner** — COMPLETE (2026-05-13: `scripts/run_modular_digest.sh` calls ingestion, scoring, subscription loading, Scala selection/ranking, and Python rendering as separate steps)
-- [x] **Make rendering consume `digest_items`** — COMPLETE (2026-05-13: `knowledge_os.render_digest` renders markdown from `digests` / `digest_items` without recomputing ranking)
-- [x] **Persona-driven multi-user config** — COMPLETE (2026-05-14: persona catalog, VB/Kintu/Mikey configs, materializer, user/all-user runners, user-scoped digest paths)
+- [x] **Wire modular runner** — COMPLETE (2026-05-13; revised 2026-05-25: `scripts/run_modular_digest.sh` calls ingestion, persona materialization, scoring, and canonical persona rendering)
+- [x] **Persona-only website delivery** — COMPLETE (2026-05-25: removed per-user rendered artifacts; WhatsApp summaries now link to the persona-filtered website)
+- [x] **Persona-driven multi-user config** — COMPLETE (2026-05-14; revised 2026-05-25: users subscribe to personas; personas own topics and selection defaults)
 - [ ] **Bring modular renderer to digest format parity** — Add optional engagement sections and verify the new enrichment step supplies comment summaries and author karma without moving ranking back into Python.
 - [x] **Engagement opportunity detection** - COMPLETE (Feb 20: 5 opps/day, username tracking, comment analysis)
 - [x] **Update digest format** - COMPLETE (🎯 Engagement Opportunities section added)
@@ -135,15 +135,15 @@ Dated record of what closed each session. Read by `/week-review` to compute proj
 ### 2026-05-13
 - [x] Install Scala and verify (Homebrew OpenJDK, SBT, Scala; `sbt test` passing)
 - [x] Document four-module architecture in ARCHITECTURE.md
-- [x] Add target schema and modular commands (`knowledge_os.schema`, `topic_scoring`, `subscriptions`, `feedback_events`; Scala `knowledgeos.Ingest` and `knowledgeos.GenerateDigest`)
+- [x] Add target schema and modular commands (`knowledge_os.schema`, `topic_scoring`, `subscriptions`, `feedback_events`; Scala `knowledgeos.Ingest`)
 - [x] Add Scala unit and integration tests (URL dedupe, author upsert, subscription filtering, digest writes, delivered feedback, full four-module DB flow)
 - [x] Wire modular runner (`scripts/run_modular_digest.sh`)
-- [x] Make rendering consume `digest_items` (`knowledge_os.render_digest` renders without recomputing ranking)
+- [x] Persona website rendering (`knowledge_os.persona_digest` renders canonical persona-marked markdown)
 
 ### 2026-05-14
-- [x] Persona-driven multi-user config (persona catalog, VB/Kintu/Mikey configs, materializer, user/all-user runners, user-scoped digest paths)
+- [x] Persona-driven multi-user config (persona catalog, VB/Kintu/Mikey configs, materializer, website-link delivery)
 
-### 2026-05-24
+### 2026-05-21
 - [x] Add VS Code workspace setup for the mixed Python/Scala project (`.vscode/settings.json`, recommended extensions, tasks, and debug launch configs)
 - [x] Validate Scala ingest debugging through Metals with `knowledgeos.Ingest --db knowledge_os.debug.db --sources config/sources.example.json`
 - [x] Confirm catalog ingest run writes to a debug SQLite DB without touching `knowledge_os.db` (136 catalog items upserted in the smoke run)

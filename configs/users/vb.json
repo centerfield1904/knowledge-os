@@ -2,32 +2,10 @@
   "user": {
     "identifier": "vb",
     "timezone": "Asia/Calcutta",
-    "personas": ["data_scientist", "llm_researcher", "applied_math", "philosopher"],
-    "personal_topics": [
-      {
-        "name": "Parenting/Education",
-        "description": "Parenting, learning, child development, schools, and education systems.",
-        "keywords": ["parenting", "education", "children", "learning", "child development", "teaching", "schools", "early childhood"]
-      }
-    ]
-  },
-  "subscriptions": {
-    "defaults": {
-      "min_topic_score": 0.35,
-      "freshness_days": 7,
-      "sources": ["hackernews", "substack"],
-      "authors": { "allow": [], "deny": [] },
-      "max_items": 8,
-      "suppress_delivered": true
-    }
-  },
-  "digest": {
-    "cadence": "daily",
-    "max_items": 20,
-    "format": "markdown"
+    "personas": ["data_scientist", "llm_researcher", "applied_math", "philosopher", "parenting_education"]
   },
   "delivery": {
-    "type": "github_markdown",
-    "path": "knos-digest/vb"
+    "type": "website_link",
+    "base_url": "https://www.bvaibhav.info/knos-digest"
   }
 }

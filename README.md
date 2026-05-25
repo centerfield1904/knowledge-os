@@ -83,16 +83,15 @@ venv/bin/python -m knowledge_os.schema --db knowledge_os.db
 
 # New modular commands
 sbt "runMain knowledgeos.Ingest --db knowledge_os.db --sources config/sources.example.json"
-venv/bin/python -m knowledge_os.personas --db knowledge_os.db --catalog personas/catalog.json --user-config configs/users/vb.json
+venv/bin/python -m knowledge_os.personas --db knowledge_os.db --catalog personas/catalog.json --users-dir configs/users
 venv/bin/python -m knowledge_os.topic_scoring --db knowledge_os.db --config config/topic_scoring.example.json
-sbt "runMain knowledgeos.GenerateDigest --db knowledge_os.db --user vb --max-items 20"
-venv/bin/python -m knowledge_os.render_digest --db knowledge_os.db --user vb --digest-id 1
-venv/bin/python -m knowledge_os.feedback_events --db knowledge_os.db --user vb --source knos-digest/vb/YYYY-MM-DD.md
+venv/bin/python -m knowledge_os.persona_digest render --db knowledge_os.db --catalog personas/catalog.json --overwrite
 
 # Run the modular flow end to end
-bash scripts/run_modular_digest.sh --db knowledge_os.db --user vb --overwrite
-bash scripts/run_user_digest.sh --user kintu --overwrite
-bash scripts/run_all_users.sh --overwrite
+bash scripts/run_modular_digest.sh --db knowledge_os.db --overwrite
+
+# Print a WhatsApp summary with persona-filtered website link
+bash scripts/send_whatsapp_digest_prompt.sh --user kintu
 
 # Operational commands log progress to stderr, keeping JSON/stdout output parseable.
 
@@ -100,8 +99,6 @@ bash scripts/run_all_users.sh --overwrite
 bash scripts/query_catalog.sh
 bash scripts/query_scoring.sh
 bash scripts/query_subscriptions.sh --user vb
-bash scripts/query_digest.sh
-bash scripts/query_digest.sh --digest-id 1
 bash scripts/query_feedback.sh --user vb
 
 # Date filters for catalog/scoring queries
@@ -120,6 +117,131 @@ venv/bin/python -m knowledge_os.engagement_summary
 # Run local dashboard
 venv/bin/python -m streamlit run src/knowledge_os/dashboard.py
 ```
+
+---
+
+## Delivery
+
+Delivery is intentionally split into two steps:
+
+1. Generate and publish the website-facing digest.
+2. Send a short WhatsApp message that links to the persona-filtered website view.
+
+The canonical digest artifact is:
+
+```text
+knos-digest/YYYY-MM-DD.md
+```
+
+The public read URL is:
+
+```text
+https://www.bvaibhav.info/knos-digest?personas=<comma-separated-persona-ids>
+```
+
+### Daily generation
+
+Run the persona digest pipeline once per day on the delivery machine:
+
+```bash
+cd /Users/vb/.openclaw/workspace/knowledge-os
+
+export JAVA_HOME=/opt/homebrew/opt/openjdk
+export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"
+
+bash scripts/run_modular_digest.sh \
+  --db knowledge_os.db \
+  --date "$(date +%F)" \
+  --overwrite
+```
+
+This performs catalog ingestion, persona materialization, topic scoring, and combined digest rendering.
+
+### Website refresh
+
+The website export reads `knos-digest/` and writes `public/data/knos-digest.json` in the `bvaibhav-info` repo:
+
+```bash
+cd /Users/vb/dev/projects/bvaibhav-info
+npm run export-digest
+npm run build
+```
+
+If the website is deployed from git, commit and push the refreshed website data from that repo after `npm run export-digest`.
+
+### WhatsApp messages
+
+Each user config in `configs/users/*.json` lists the personas that user subscribes to. The prompt command turns that into a personalized WhatsApp message and website URL:
+
+```bash
+cd /Users/vb/.openclaw/workspace/knowledge-os
+
+bash scripts/send_whatsapp_digest_prompt.sh --user vb --date "$(date +%F)"
+bash scripts/send_whatsapp_digest_prompt.sh --user kintu --date "$(date +%F)"
+bash scripts/send_whatsapp_digest_prompt.sh --user mikey --date "$(date +%F)"
+```
+
+The script prints message text only. The delivery Mac should keep phone numbers and sender credentials in a local file outside git, then pipe each generated message into the installed WhatsApp sender for that machine.
+
+Recommended local-only shape:
+
+```json
+{
+  "vb": "+91XXXXXXXXXX",
+  "kintu": "+91XXXXXXXXXX",
+  "mikey": "+1XXXXXXXXXX"
+}
+```
+
+Suggested local wrapper, not committed to the repo:
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+DATE="$(date +%F)"
+KNOS="/Users/vb/.openclaw/workspace/knowledge-os"
+SITE="/Users/vb/dev/projects/bvaibhav-info"
+RECIPIENTS="$HOME/.config/knowledge-os/whatsapp-recipients.json"
+
+cd "$KNOS"
+export JAVA_HOME=/opt/homebrew/opt/openjdk
+export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"
+bash scripts/run_modular_digest.sh --db knowledge_os.db --date "$DATE" --overwrite
+
+cd "$SITE"
+npm run export-digest
+npm run build
+
+cd "$KNOS"
+for user in vb kintu mikey; do
+  phone="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$RECIPIENTS" "$user")"
+  message="$(bash scripts/send_whatsapp_digest_prompt.sh --user "$user" --date "$DATE")"
+
+  # Replace this with the WhatsApp sender installed on the delivery Mac.
+  # Example shape: whatsapp-send --to "$phone" --message "$message"
+  printf '%s\n\n%s\n' "$phone" "$message"
+done
+```
+
+Cron example for the second Mac:
+
+```cron
+SHELL=/bin/bash
+PATH=/opt/homebrew/bin:/opt/homebrew/opt/openjdk/bin:/usr/local/bin:/usr/bin:/bin
+JAVA_HOME=/opt/homebrew/opt/openjdk
+
+0 14 * * * /Users/vb/bin/send-knowledge-os-digest >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
+```
+
+The cron host must have:
+
+- this repo checked out at `/Users/vb/.openclaw/workspace/knowledge-os`
+- the website repo checked out at `/Users/vb/dev/projects/bvaibhav-info`
+- Python dependencies installed in `venv/`
+- Node dependencies installed in the website repo
+- OpenJDK and SBT available
+- local WhatsApp sender credentials/session configured outside git
 
 ---
 
@@ -255,8 +377,8 @@ _A quieter read for the weekend._
 - Records `read` or `read_with_note` feedback
 
 ### Delivery
-- **`scripts/run_digest_v2.sh`** — full pipeline: fetch all sources, merge, process, archive to `archive/` and `knos-digest/`. Flags: `--fetch-only` (store without digest), `--push` (git push after archive), `--rerun` (clear today's archive + stale feedback, then run fresh)
-- **`scripts/daily_digest.sh`** — cron wrapper for the v2 pipeline; OpenClaw/cron handles message delivery outside Python
+- **`scripts/run_modular_digest.sh`** — canonical persona digest pipeline; writes `knos-digest/YYYY-MM-DD.md`
+- **`scripts/send_whatsapp_digest_prompt.sh`** — prints a WhatsApp-ready summary plus persona-filtered website link for one configured user
 - **`src/knowledge_os/engagement_summary.py`** — engagement reflection report
 
 ### Dashboard (`src/knowledge_os/dashboard.py`)
@@ -337,7 +459,7 @@ Full config shape:
 knowledge-os/
 ├── config.json                  # Topics, sources, settings (gitignored)
 ├── config.example.json          # Template config
-├── build.sbt                    # Scala build for ingestion + digest selection/ranking
+├── build.sbt                    # Scala build for ingestion
 ├── pytest.ini                   # pytest marker definitions
 │
 ├── config/
@@ -352,7 +474,6 @@ knowledge-os/
 │
 ├── src/main/scala/knowledgeos/      # Scala package
 │   ├── Ingest.scala             # Catalog ingestion
-│   ├── GenerateDigest.scala     # Selection/ranking only
 │   ├── Db.scala                 # JDBC helpers
 │   └── Args.scala               # Small CLI parser
 │
@@ -362,10 +483,10 @@ knowledge-os/
 │   ├── match_topics.py          # Semantic topic matcher + score_all_stories()
 │   ├── schema.py                # Target four-module SQLite schema
 │   ├── personas.py              # Persona topic/subscription materializer
+│   ├── persona_digest.py        # Canonical persona digest renderer + WhatsApp summary
 │   ├── topic_scoring.py         # Configurable ML topic scoring
 │   ├── subscriptions.py         # User subscription config loader
 │   ├── feedback_events.py       # Common feedback event ingestion
-│   ├── render_digest.py         # Markdown rendering from digest_items
 │   ├── process_digest.py        # Legacy production CLI wrapper
 │   ├── digest_pipeline.py       # Main orchestration
 │   ├── digest_formatter.py      # Digest text rendering
@@ -379,14 +500,11 @@ knowledge-os/
 │   └── dashboard.py             # Streamlit UI
 │
 ├── scripts/
-│   ├── run_modular_digest.sh    # Four-module runner
-│   ├── run_user_digest.sh       # One configured user
-│   ├── run_all_users.sh         # Shared ingest/scoring, per-user digest
-│   ├── publish_digest.sh        # Commit/push one user digest and print URL
+│   ├── run_modular_digest.sh    # Canonical persona digest runner
+│   ├── send_whatsapp_digest_prompt.sh # Website-link WhatsApp prompt
 │   ├── query_catalog.sh         # Catalog items/authors summary
 │   ├── query_scoring.sh         # Topics, scoring configs, top scores
 │   ├── query_subscriptions.sh   # Users and topic subscriptions
-│   ├── query_digest.sh          # Digest runs and selected items
 │   ├── query_feedback.sh        # Feedback events
 │   ├── run_digest_v2.sh         # Full pipeline (--fetch-only for 6h cron)
 │   ├── daily_digest.sh          # Cron wrapper (2 PM digest)
@@ -398,7 +516,7 @@ knowledge-os/
 ├── Tests
 │   ├── src/test/scala/knowledgeos/*Suite.scala # Scala unit + integration tests
 │   ├── tests/test_target_schema.py       # target schema/config/feedback tests
-│   ├── tests/test_render_digest.py       # modular renderer tests
+│   ├── tests/test_persona_digest.py      # persona renderer tests
 │   ├── tests/test_query_pipeline.py      # query CLI SQL tests
 │   ├── tests/test_process_digest.py       # unit
 │   ├── tests/test_storage.py              # unit
@@ -408,7 +526,7 @@ knowledge-os/
 │   └── tests/test_pipeline_integration.py # integration (marked, excluded from CI)
 │
 ├── Output
-│   ├── knos-digest/<user>/YYYY-MM-DD.md # generated daily digest markdown (gitignored)
+│   ├── knos-digest/YYYY-MM-DD.md    # generated persona digest markdown (gitignored)
 │   └── archive/                     # generated raw story/digest archive
 │
 └── Docs
