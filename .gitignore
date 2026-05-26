@@ -19,6 +19,11 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+node_modules/
+
+# Local WhatsApp Web auth/session state
+.baileys-auth/
+auth_info_baileys/
 
 # Scala / JVM
 target/

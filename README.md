@@ -93,6 +93,9 @@ bash scripts/run_modular_digest.sh --db knowledge_os.db --overwrite
 # Print a WhatsApp summary with persona-filtered website link
 bash scripts/send_whatsapp_digest_prompt.sh --user kintu
 
+# Generate digest, refresh website data, and prepare WhatsApp delivery
+bash scripts/deliver_whatsapp_digest.sh --dry-run
+
 # Operational commands log progress to stderr, keeping JSON/stdout output parseable.
 
 # Inspect modular pipeline state
@@ -122,10 +125,11 @@ venv/bin/python -m streamlit run src/knowledge_os/dashboard.py
 
 ## Delivery
 
-Delivery is intentionally split into two steps:
+Delivery is intentionally split into three steps:
 
 1. Generate and publish the website-facing digest.
-2. Send a short WhatsApp message that links to the persona-filtered website view.
+2. Refresh the website digest export.
+3. Send a short WhatsApp message that links to the persona-filtered website view.
 
 The canonical digest artifact is:
 
@@ -169,7 +173,7 @@ npm run build
 
 If the website is deployed from git, commit and push the refreshed website data from that repo after `npm run export-digest`.
 
-### WhatsApp messages
+### WhatsApp delivery
 
 Each user config in `configs/users/*.json` lists the personas that user subscribes to. The prompt command turns that into a personalized WhatsApp message and website URL:
 
@@ -181,9 +185,9 @@ bash scripts/send_whatsapp_digest_prompt.sh --user kintu --date "$(date +%F)"
 bash scripts/send_whatsapp_digest_prompt.sh --user mikey --date "$(date +%F)"
 ```
 
-The script prints message text only. The delivery Mac should keep phone numbers and sender credentials in a local file outside git, then pipe each generated message into the installed WhatsApp sender for that machine.
+The prompt script prints message text only. The delivery wrapper runs the whole delivery plan: digest generation, website export/build, recipient lookup, zero-item user skipping, and optional sender invocation.
 
-Recommended local-only shape:
+Phone numbers stay in a local file outside git:
 
 ```json
 {
@@ -193,35 +197,46 @@ Recommended local-only shape:
 }
 ```
 
-Suggested local wrapper, not committed to the repo:
+Install the local WhatsApp Web sender dependencies and link the Baileys session once:
 
 ```bash
-#!/bin/bash
-set -euo pipefail
+npm install
+npm run whatsapp:login
+```
 
-DATE="$(date +%F)"
-KNOS="/Users/vb/.openclaw/workspace/knowledge-os"
-SITE="/Users/vb/dev/projects/bvaibhav-info"
-RECIPIENTS="$HOME/.config/knowledge-os/whatsapp-recipients.json"
+The login command prints a QR code. Open WhatsApp on the sending phone, then use **Linked devices** → **Link a device**. Auth state is stored outside git at:
 
-cd "$KNOS"
+```text
+~/.config/knowledge-os/baileys-auth
+```
+
+Dry run the full delivery without sending:
+
+```bash
 export JAVA_HOME=/opt/homebrew/opt/openjdk
 export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"
-bash scripts/run_modular_digest.sh --db knowledge_os.db --date "$DATE" --overwrite
 
-cd "$SITE"
-npm run export-digest
-npm run build
+bash scripts/deliver_whatsapp_digest.sh \
+  --date "$(date +%F)" \
+  --recipients "$HOME/.config/knowledge-os/whatsapp-recipients.json" \
+  --dry-run
+```
 
-cd "$KNOS"
-for user in vb kintu mikey; do
-  phone="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$RECIPIENTS" "$user")"
-  message="$(bash scripts/send_whatsapp_digest_prompt.sh --user "$user" --date "$DATE")"
+Send through the linked Baileys WhatsApp Web session:
 
-  # Replace this with the WhatsApp sender installed on the delivery Mac.
-  # Example shape: whatsapp-send --to "$phone" --message "$message"
-  printf '%s\n\n%s\n' "$phone" "$message"
-done
+```bash
+bash scripts/deliver_whatsapp_digest.sh \
+  --date "$(date +%F)" \
+  --recipients "$HOME/.config/knowledge-os/whatsapp-recipients.json" \
+  --send
+```
+
+By default the wrapper calls `node scripts/baileys_send.mjs --to {phone} --message {message}`. If the local sender needs a different shape, use placeholders:
+
+```bash
+bash scripts/deliver_whatsapp_digest.sh \
+  --send \
+  --send-command "whatsapp-send --phone {phone} --text {message}"
 ```
 
 Cron example for the second Mac:
@@ -231,17 +246,18 @@ SHELL=/bin/bash
 PATH=/opt/homebrew/bin:/opt/homebrew/opt/openjdk/bin:/usr/local/bin:/usr/bin:/bin
 JAVA_HOME=/opt/homebrew/opt/openjdk
 
-0 14 * * * /Users/vb/bin/send-knowledge-os-digest >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
+0 14 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_vb_whatsapp_digest.sh >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
 ```
 
 The cron host must have:
 
-- this repo checked out at `/Users/vb/.openclaw/workspace/knowledge-os`
+- this repo checked out at `/Users/vb/dev/projects/knowledge-os`
 - the website repo checked out at `/Users/vb/dev/projects/bvaibhav-info`
 - Python dependencies installed in `venv/`
 - Node dependencies installed in the website repo
+- Node dependencies installed in this repo with `npm install`
 - OpenJDK and SBT available
-- local WhatsApp sender credentials/session configured outside git
+- Baileys WhatsApp Web session linked in `~/.config/knowledge-os/baileys-auth`
 
 ---
 
@@ -379,6 +395,9 @@ _A quieter read for the weekend._
 ### Delivery
 - **`scripts/run_modular_digest.sh`** — canonical persona digest pipeline; writes `knos-digest/YYYY-MM-DD.md`
 - **`scripts/send_whatsapp_digest_prompt.sh`** — prints a WhatsApp-ready summary plus persona-filtered website link for one configured user
+- **`scripts/deliver_whatsapp_digest.sh`** — runs digest generation, website refresh, recipient lookup, and dry-run or real WhatsApp delivery
+- **`scripts/baileys_send.mjs`** — local Baileys WhatsApp Web sender used by the delivery wrapper
+- **`src/knowledge_os/whatsapp_delivery.py`** — validates local recipient config, skips zero-item messages, and calls the configured sender command
 - **`src/knowledge_os/engagement_summary.py`** — engagement reflection report
 
 ### Dashboard (`src/knowledge_os/dashboard.py`)
@@ -484,6 +503,7 @@ knowledge-os/
 │   ├── schema.py                # Target four-module SQLite schema
 │   ├── personas.py              # Persona topic/subscription materializer
 │   ├── persona_digest.py        # Canonical persona digest renderer + WhatsApp summary
+│   ├── whatsapp_delivery.py     # Recipient lookup + optional WhatsApp sender invocation
 │   ├── topic_scoring.py         # Configurable ML topic scoring
 │   ├── subscriptions.py         # User subscription config loader
 │   ├── feedback_events.py       # Common feedback event ingestion
@@ -502,6 +522,9 @@ knowledge-os/
 ├── scripts/
 │   ├── run_modular_digest.sh    # Canonical persona digest runner
 │   ├── send_whatsapp_digest_prompt.sh # Website-link WhatsApp prompt
+│   ├── deliver_whatsapp_digest.sh # End-to-end website + WhatsApp delivery wrapper
+│   ├── daily_vb_whatsapp_digest.sh # Cron-safe daily VB delivery
+│   ├── baileys_send.mjs         # Baileys WhatsApp Web sender
 │   ├── query_catalog.sh         # Catalog items/authors summary
 │   ├── query_scoring.sh         # Topics, scoring configs, top scores
 │   ├── query_subscriptions.sh   # Users and topic subscriptions
@@ -564,7 +587,7 @@ knowledge-os/
 - **feedparser** for Substack RSS
 - **SQLite 3** for storage
 - **HN Firebase API** for story fetching
-- **OpenClaw** for WhatsApp delivery
+- **Baileys** for local WhatsApp Web delivery
 - **pytest** for testing via `requirements-dev.txt` (`tmp_path` fixtures, `integration` marker)
 - **munit** for Scala tests
 

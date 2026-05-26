@@ -53,6 +53,7 @@
 
 ### UX
 - [ ] **Redesign the dashboard** - make it super user friendly, less clunky. Keep the streamlit version for all the bells and whistles. Create one for external users.
+- [ ] **Manage scheduled jobs from the dashboard** — Add a dashboard view for Knowledge OS cron jobs: current schedule, last run status, log tail, enable/disable, run-now, and safe edit controls for the daily VB delivery, catalog refresh, weekly summary, and engagement summary jobs.
 
 ### Similar
 - [ ] https://www.kerns.ai

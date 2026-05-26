@@ -1,0 +1,15 @@
+{
+  "name": "knowledge-os-whatsapp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "whatsapp:login": "node scripts/baileys_send.mjs --login-only",
+    "whatsapp:send": "node scripts/baileys_send.mjs"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "6.7.23",
+    "pino": "^9.7.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
