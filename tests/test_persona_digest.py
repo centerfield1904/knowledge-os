@@ -19,7 +19,8 @@ def _write_catalog(path):
                 "name": "AI Research",
                 "selection": {
                     "min_topic_score": 0.4,
-                    "freshness_days": 30,
+                    "cadence": "daily",
+                    "freshness_days": 1,
                     "sources": ["hackernews"],
                     "max_items": 5,
                 },
@@ -33,7 +34,9 @@ def _write_catalog(path):
                 "name": "UX / Design",
                 "selection": {
                     "min_topic_score": 0.3,
-                    "freshness_days": 30,
+                    "cadence": "weekly",
+                    "send_days": ["mon"],
+                    "freshness_days": 7,
                     "sources": ["hackernews", "substack"],
                     "max_items": 5,
                 },
@@ -57,7 +60,9 @@ def _seed_scores(db_path):
               (url, title, source, external_id, author_name, score, item_text, fetched_at, published_at)
             VALUES
               ('https://example.com/a', 'Shared AI UX story', 'hackernews', '101', 'alice', 50, 'body', '2026-05-25T00:00:00', '2026-05-25T00:00:00'),
-              ('https://example.com/b', 'Pure design story', 'substack', '', 'bea', 0, 'body', '2026-05-24T00:00:00', '2026-05-24T00:00:00')
+              ('https://example.com/b', 'Pure design story', 'substack', '', 'bea', 0, 'body', '2026-05-24T00:00:00', '2026-05-24T00:00:00'),
+              ('https://example.com/c', 'Older AI story', 'hackernews', '102', 'cam', 80, 'body', '2026-05-25T00:00:00', '2026-05-24T00:00:00'),
+              ('https://example.com/d', 'Stale design story', 'substack', '', 'dee', 90, 'body', '2026-05-25T00:00:00', '2026-05-18T00:00:00')
             """
         )
         conn.execute("INSERT INTO topics (name, keywords_json) VALUES ('AI Research', '[]')")
@@ -69,7 +74,9 @@ def _seed_scores(db_path):
             VALUES
               (1, 1, 1, 0.72),
               (1, 2, 1, 0.71),
-              (2, 2, 1, 0.52)
+              (2, 2, 1, 0.52),
+              (3, 1, 1, 0.80),
+              (4, 2, 1, 0.90)
             """
         )
         conn.commit()
@@ -89,6 +96,17 @@ def test_select_persona_items_assigns_each_story_to_one_persona(tmp_path):
         ("Shared AI UX story", "ai_researcher"),
         ("Pure design story", "ux_design"),
     ]
+
+
+def test_select_persona_items_only_uses_published_at_cadence_window(tmp_path):
+    db_path = tmp_path / "target.db"
+    catalog_path = tmp_path / "catalog.json"
+    _write_catalog(catalog_path)
+    _seed_scores(db_path)
+
+    selected = select_persona_items(str(db_path), str(catalog_path), today=date(2026, 5, 26))
+
+    assert selected == []
 
 
 def test_render_persona_digest_file_writes_combined_markdown(tmp_path, monkeypatch):

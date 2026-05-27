@@ -18,6 +18,25 @@ from .personas import _load, persona_selection, validate_catalog
 BASE_URL = "https://www.bvaibhav.info/knos-digest"
 PERSONA_MARKER_RE = re.compile(r"^<!--\s*knos-persona:\s*([^|]+?)\s*\|\s*(.+?)\s*-->$")
 CHECKBOX_RE = re.compile(r"^- \[[ Xx]\]\s+(.+)$")
+WEEKDAYS = {
+    "mon": 0,
+    "monday": 0,
+    "tue": 1,
+    "tues": 1,
+    "tuesday": 1,
+    "wed": 2,
+    "wednesday": 2,
+    "thu": 3,
+    "thur": 3,
+    "thurs": 3,
+    "thursday": 3,
+    "fri": 4,
+    "friday": 4,
+    "sat": 5,
+    "saturday": 5,
+    "sun": 6,
+    "sunday": 6,
+}
 
 
 def _log(message: str) -> None:
@@ -80,17 +99,48 @@ def _published_date(value: str) -> str:
     return parsed.date().isoformat() if parsed else "unknown"
 
 
+def _matches_send_day(selection: Dict, today: date) -> bool:
+    send_days = selection.get("send_days") or []
+    if not send_days:
+        return True
+
+    today_weekday = today.weekday()
+    for raw_day in send_days:
+        day_key = str(raw_day).strip().lower()
+        if day_key not in WEEKDAYS:
+            raise ValueError(f"Unsupported send day: {raw_day}")
+        if WEEKDAYS[day_key] == today_weekday:
+            return True
+    return False
+
+
+def _cadence_window(selection: Dict, today: date) -> Optional[tuple[date, date]]:
+    if not _matches_send_day(selection, today):
+        return None
+
+    cadence = str(selection.get("cadence", "daily")).strip().lower()
+    if cadence == "daily":
+        return today, today
+    if cadence == "weekly":
+        return today - timedelta(days=6), today
+    raise ValueError(f"Unsupported persona cadence: {cadence}")
+
+
 def _passes_selection(candidate: Candidate, selection: Dict, today: date) -> bool:
     if candidate.topic_score < float(selection.get("min_topic_score", 0.35)):
         return False
     sources = selection.get("sources") or []
     if sources and candidate.source not in sources:
         return False
-    freshness_days = selection.get("freshness_days")
-    if freshness_days is not None:
-        published = _parse_dt(candidate.published_at)
-        if published and published.date() < today - timedelta(days=int(freshness_days)):
-            return False
+    window = _cadence_window(selection, today)
+    if window is None:
+        return False
+    published = _parse_dt(candidate.published_at)
+    if not published:
+        return False
+    start_date, end_date = window
+    if not start_date <= published.date() <= end_date:
+        return False
     return True
 
 
@@ -117,7 +167,7 @@ def select_persona_items(db_path: str, catalog_path: str, today: Optional[date] 
                 COALESCE(i.external_id, '') AS external_id,
                 COALESCE(i.author_name, '') AS author_name,
                 COALESCE(i.score, 0) AS item_score,
-                COALESCE(i.published_at, i.fetched_at) AS published_at,
+                i.published_at AS published_at,
                 t.name AS topic_name,
                 MAX(s.score) AS topic_score
             FROM item_topic_scores s
@@ -147,7 +197,7 @@ def select_persona_items(db_path: str, catalog_path: str, today: Optional[date] 
             external_id=row["external_id"],
             author_name=row["author_name"],
             item_score=int(row["item_score"]),
-            published_at=row["published_at"],
+            published_at=row["published_at"] or "",
         )
         if _passes_selection(candidate, topic.selection, today):
             candidates.append(candidate)

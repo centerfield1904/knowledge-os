@@ -50,7 +50,7 @@ if $SKIP_INGEST; then
     log_step "Skipping catalog ingestion"
 else
     log_step "Running catalog ingestion"
-    run_sbt "runMain knowledgeos.Ingest --db $DB --sources $SOURCES_CONFIG"
+    run_sbt "runMain knowledgeos.Ingest --db $DB --sources $SOURCES_CONFIG --date $DATE"
 fi
 
 log_step "Materializing persona catalog and user subscriptions"

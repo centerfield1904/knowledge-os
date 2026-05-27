@@ -78,6 +78,32 @@ class IngestSuite extends munit.FunSuite:
     }
   }
 
+  test("upsertStory accepts caller-provided ingest date as fetched_at") {
+    val db = tempDb()
+    initCatalog(db)
+    Db.withConnection(db) { conn =>
+      val story = Ingest.Story(
+        title = "Dated ingest",
+        url = "https://example.com/dated",
+        source = "hackernews",
+        externalId = Some("2"),
+        authorName = "alice",
+        score = 10,
+        commentCount = 2,
+        itemText = Some("body"),
+        publishedAt = Some("2026-01-01T00:00:00Z"),
+        metadataJson = "{}"
+      )
+
+      Ingest.upsertStory(conn, story, Ingest.ingestFetchedAt(Some("2026-05-14")))
+
+      val fetchedAt = Db.query(conn, "SELECT fetched_at FROM items WHERE url = ?", Seq(story.url))(
+        _.getString("fetched_at")
+      )
+      assertEquals(fetchedAt, Vector("2026-05-14T00:00:00Z"))
+    }
+  }
+
   test("initCatalogSchema creates required tables for an empty database") {
     val db = tempDb()
     Db.withConnection(db) { conn =>

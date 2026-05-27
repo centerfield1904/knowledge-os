@@ -2,7 +2,7 @@
 
 **Multi-source digest pipeline with semantic topic matching, engagement detection, and inline read tracking.**
 
-Curates stories from Hacker News and Substack RSS feeds, matches them to your interests via sentence-transformer embeddings, detects engagement opportunities, and delivers a daily digest via WhatsApp at 2 PM.
+Curates stories from Hacker News and Substack RSS feeds, matches them to persona interests via sentence-transformer embeddings, and delivers cadence-aware digest links via WhatsApp.
 
 ---
 
@@ -82,13 +82,13 @@ sbt test
 venv/bin/python -m knowledge_os.schema --db knowledge_os.db
 
 # New modular commands
-sbt "runMain knowledgeos.Ingest --db knowledge_os.db --sources config/sources.example.json"
+sbt "runMain knowledgeos.Ingest --db knowledge_os.db --sources config/sources.example.json --date $(date +%F)"
 venv/bin/python -m knowledge_os.personas --db knowledge_os.db --catalog personas/catalog.json --users-dir configs/users
 venv/bin/python -m knowledge_os.topic_scoring --db knowledge_os.db --config config/topic_scoring.example.json
-venv/bin/python -m knowledge_os.persona_digest render --db knowledge_os.db --catalog personas/catalog.json --overwrite
+venv/bin/python -m knowledge_os.persona_digest render --db knowledge_os.db --catalog personas/catalog.json --date "$(date +%F)" --overwrite
 
 # Run the modular flow end to end
-bash scripts/run_modular_digest.sh --db knowledge_os.db --overwrite
+bash scripts/run_modular_digest.sh --db knowledge_os.db --date "$(date +%F)" --overwrite
 
 # Print a WhatsApp summary with persona-filtered website link
 bash scripts/send_whatsapp_digest_prompt.sh --user kintu
@@ -160,6 +160,24 @@ bash scripts/run_modular_digest.sh \
 ```
 
 This performs catalog ingestion, persona materialization, topic scoring, and combined digest rendering.
+
+The `--date` is threaded into ingestion as `items.fetched_at` for audit/backfill runs and into rendering as the digest date. Persona selection uses `items.published_at`, not `fetched_at`, so re-ingesting an older story on a later day does not make it eligible for that later daily digest.
+
+Persona cadence lives in `personas/catalog.json` under each persona's `selection` block:
+
+```json
+{
+  "selection": {
+    "cadence": "weekly",
+    "send_days": ["fri"],
+    "freshness_days": 7,
+    "sources": ["hackernews", "substack"],
+    "max_items": 8
+  }
+}
+```
+
+`daily` selects only items published on the digest date. `weekly` selects the inclusive seven-day window ending on the digest date. `send_days` is optional; when present, that persona contributes only on those weekdays. `freshness_days` remains in the catalog for compatibility with the subscription table, but the canonical persona renderer uses `cadence` and `published_at`.
 
 ### Website refresh
 
@@ -384,7 +402,7 @@ _A quieter read for the weekend._
 ### Storage (`src/knowledge_os/storage_sqlite.py`)
 - SQLite via abstract `StorageInterface` (swappable to Postgres)
 - Tables: `users`, `topics`, `items`, `item_topic_scores`, `authors`, `digests`, `feedback`, `engagement_opportunities`, `user_comments`, `engagement_stats`
-- `items.published_at` (ISO 8601) tracks original publication date; on re-fetch, if `published_at` is newer than stored, the item re-surfaces in the digest
+- `items.published_at` (ISO 8601) tracks original publication date. The canonical persona renderer uses `published_at` for cadence windows and does not use `fetched_at` to make old stories reappear.
 
 ### Read Tracking (`src/knowledge_os/sync_reading_log.py`)
 - Parses checked `[x]` items from digest markdown files
@@ -393,7 +411,7 @@ _A quieter read for the weekend._
 - Records `read` or `read_with_note` feedback
 
 ### Delivery
-- **`scripts/run_modular_digest.sh`** — canonical persona digest pipeline; writes `knos-digest/YYYY-MM-DD.md`
+- **`scripts/run_modular_digest.sh`** — canonical persona digest pipeline; passes `--date` into ingestion and rendering; writes `knos-digest/YYYY-MM-DD.md`
 - **`scripts/send_whatsapp_digest_prompt.sh`** — prints a WhatsApp-ready summary plus persona-filtered website link for one configured user
 - **`scripts/deliver_whatsapp_digest.sh`** — runs digest generation, website refresh, recipient lookup, and dry-run or real WhatsApp delivery
 - **`scripts/baileys_send.mjs`** — local Baileys WhatsApp Web sender used by the delivery wrapper
@@ -595,6 +613,12 @@ knowledge-os/
 
 ## Recent Updates
 
+**2026-05-27:** Persona cadence and date-aware ingestion
+- Added persona-level `selection.cadence` and optional `selection.send_days`; daily uses the digest date, weekly uses the inclusive seven-day `published_at` window.
+- Canonical persona selection now uses `items.published_at` only for cadence eligibility, so re-fetching an old URL does not make it recur in a daily digest.
+- Scala ingestion accepts `--date YYYY-MM-DD` and stores that as `items.fetched_at` at UTC midnight for backfill/audit runs.
+- `scripts/run_modular_digest.sh` and `scripts/run_catalog_ingest.sh` pass `--date` into Scala ingestion.
+
 **2026-05-13:** Four-module architecture implementation slice
 - Added target SQLite schema for catalog, separate content, global topics, historical topic scores, subscriptions, digest membership, and feedback events
 - Added Scala project with concurrent ingestion and digest selection/ranking entry points
@@ -618,7 +642,7 @@ knowledge-os/
 
 **2026-03-03:** published_at tracking, 52 Substack feeds, Browse tab, age filter
 - All stories now carry `published_at` (ISO 8601); HN from `time` field, Substack from `updated_parsed` or `published_parsed`
-- `src/knowledge_os/storage_sqlite.py`: if a re-fetched URL has a newer `published_at`, record is updated and story re-surfaces in the digest
+- Legacy storage updates a re-fetched URL when the source reports a newer `published_at`; the canonical persona renderer now uses `published_at` cadence windows rather than fetched date
 - `max_age_days` config setting (default 7) filters stories before matching — prevents old Substack backlog from flooding the digest
 - 52 Substack feeds added from TSPC community CSV
 - Dashboard **Browse** tab: card-based reading view, filter by topic/source/date range, grouped by publication date

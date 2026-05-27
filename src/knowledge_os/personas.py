@@ -33,7 +33,9 @@ def persona_selection(persona: Dict) -> Dict:
     """Return canonical selection defaults for a persona stream."""
     selection = dict(persona.get("selection", {}))
     selection.setdefault("min_topic_score", 0.35)
-    selection.setdefault("freshness_days", 7)
+    selection.setdefault("cadence", "daily")
+    selection.setdefault("send_days", [])
+    selection.setdefault("freshness_days", 1)
     selection.setdefault("sources", ["hackernews", "substack"])
     selection.setdefault("max_items", 8)
     selection.setdefault("suppress_delivered", True)

@@ -4,7 +4,8 @@
       "name": "Software Engineer",
       "selection": {
         "min_topic_score": 0.35,
-        "freshness_days": 7,
+        "cadence": "daily",
+        "freshness_days": 1,
         "sources": ["hackernews", "substack"],
         "max_items": 8
       },
@@ -20,7 +21,8 @@
       "name": "Data Engineer",
       "selection": {
         "min_topic_score": 0.35,
-        "freshness_days": 7,
+        "cadence": "daily",
+        "freshness_days": 1,
         "sources": ["hackernews", "substack"],
         "max_items": 8
       },
@@ -36,7 +38,8 @@
       "name": "Data Scientist",
       "selection": {
         "min_topic_score": 0.35,
-        "freshness_days": 7,
+        "cadence": "daily",
+        "freshness_days": 1,
         "sources": ["hackernews", "substack"],
         "max_items": 8
       },
@@ -52,7 +55,8 @@
       "name": "AI / ML Researcher",
       "selection": {
         "min_topic_score": 0.42,
-        "freshness_days": 10,
+        "cadence": "daily",
+        "freshness_days": 1,
         "sources": ["hackernews", "substack"],
         "max_items": 8
       },
@@ -68,7 +72,8 @@
       "name": "LLM Researcher",
       "selection": {
         "min_topic_score": 0.42,
-        "freshness_days": 10,
+        "cadence": "daily",
+        "freshness_days": 1,
         "sources": ["hackernews", "substack"],
         "max_items": 8
       },
@@ -84,7 +89,8 @@
       "name": "Product Manager",
       "selection": {
         "min_topic_score": 0.35,
-        "freshness_days": 7,
+        "cadence": "daily",
+        "freshness_days": 1,
         "sources": ["hackernews", "substack"],
         "max_items": 8
       },
@@ -100,7 +106,9 @@
       "name": "UX / Design",
       "selection": {
         "min_topic_score": 0.32,
-        "freshness_days": 14,
+        "cadence": "weekly",
+        "send_days": ["fri"],
+        "freshness_days": 7,
         "sources": ["hackernews", "substack"],
         "max_items": 8
       },
@@ -116,7 +124,8 @@
       "name": "Applied Mathematician",
       "selection": {
         "min_topic_score": 0.35,
-        "freshness_days": 7,
+        "cadence": "daily",
+        "freshness_days": 1,
         "sources": ["hackernews", "substack"],
         "max_items": 8
       },
@@ -132,7 +141,8 @@
       "name": "Infrastructure / Platform",
       "selection": {
         "min_topic_score": 0.35,
-        "freshness_days": 7,
+        "cadence": "daily",
+        "freshness_days": 1,
         "sources": ["hackernews", "substack"],
         "max_items": 8
       },
@@ -148,7 +158,8 @@
       "name": "Founding Engineer",
       "selection": {
         "min_topic_score": 0.35,
-        "freshness_days": 7,
+        "cadence": "daily",
+        "freshness_days": 1,
         "sources": ["hackernews", "substack"],
         "max_items": 8
       },
@@ -164,7 +175,8 @@
       "name": "Philosophy / Thinking",
       "selection": {
         "min_topic_score": 0.35,
-        "freshness_days": 7,
+        "cadence": "daily",
+        "freshness_days": 1,
         "sources": ["hackernews", "substack"],
         "max_items": 8
       },
@@ -180,7 +192,8 @@
       "name": "Parenting / Education",
       "selection": {
         "min_topic_score": 0.35,
-        "freshness_days": 7,
+        "cadence": "daily",
+        "freshness_days": 1,
         "sources": ["hackernews", "substack"],
         "max_items": 8
       },

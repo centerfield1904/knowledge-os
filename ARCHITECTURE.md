@@ -81,6 +81,7 @@ Rules:
 
 - `items.url` is the dedupe key for content identity.
 - Scrapers may update item metadata such as title, score, source, author, `published_at`, `fetched_at`, `external_id`, and raw text fields.
+- `published_at` is the content date used by digest cadence filters. `fetched_at` records when a catalog run observed or refreshed the item; date-aware backfills can set it explicitly with `--date`.
 - Extra content such as comments is stored separately in `item_content`; it is not folded permanently into the canonical item row.
 - Scraper runs do not read user subscriptions and do not create digests.
 - Author updates are catalog concerns, not digest concerns.
@@ -133,7 +134,9 @@ Outputs:
 Rules:
 
 - A user subscribes to topics through filter configuration.
-- Subscription filters can include topic score threshold, author allow/deny lists, source filters, freshness windows, maximum items, already-delivered suppression, and digest cadence.
+- Persona selection filters can include topic score threshold, source filters, maximum items, and cadence.
+- Current canonical persona cadence is stateless: it uses `items.published_at` only. Daily personas select items published on the digest date; weekly personas select the inclusive seven-day window ending on the digest date. Optional `send_days` gates whether a persona contributes on a given weekday.
+- `freshness_days` remains in subscription storage for compatibility with older paths, but canonical persona rendering is cadence-driven.
 - Each `generate_digest` run creates a new `digest_id`.
 - Digest generation only reads catalog/scoring data; it does not scrape and does not score.
 - Digest membership is explicit in `digest_items`; do not rely only on JSON item lists.
@@ -441,32 +444,51 @@ Controls scoring logic and content inputs.
 
 ### User Subscription Config
 
-Controls digest selection.
+Controls which personas a user receives. Persona-level selection defaults live in `personas/catalog.json`.
 
 ```json
 {
   "user": {
-    "identifier": "vb",
-    "timezone": "Asia/Calcutta"
+    "identifier": "kintu",
+    "timezone": "Asia/Calcutta",
+    "personas": ["ux_design"]
   },
-  "subscriptions": [
-    {
-      "topic": "AI/ML/LLMs",
-      "min_topic_score": 0.35,
-      "freshness_days": 7,
-      "sources": ["hackernews", "substack"],
-      "authors": { "allow": [], "deny": [] },
-      "max_items": 8,
-      "suppress_delivered": true
-    }
-  ],
   "digest": {
-    "cadence": "daily",
     "max_items": 20,
     "format": "markdown"
   }
 }
 ```
+
+### Persona Selection Config
+
+Controls topic ownership and cadence-aware digest selection.
+
+```json
+{
+  "personas": {
+    "ux_design": {
+      "name": "UX / Design",
+      "selection": {
+        "min_topic_score": 0.32,
+        "cadence": "weekly",
+        "send_days": ["fri"],
+        "freshness_days": 7,
+        "sources": ["hackernews", "substack"],
+        "max_items": 8
+      },
+      "topics": [
+        {
+          "name": "UX / Design",
+          "keywords": ["interaction design", "usability", "accessibility"]
+        }
+      ]
+    }
+  }
+}
+```
+
+`cadence: "daily"` selects only items whose `published_at` date equals the digest date. `cadence: "weekly"` selects `published_at` dates from `digest_date - 6 days` through `digest_date`, inclusive. `send_days` is optional and accepts weekday names such as `mon` or `friday`.
 
 ### Feedback Config
 
@@ -489,7 +511,7 @@ These commands express the intended separation:
 
 ```bash
 # Ingestion only
-sbt "runMain knowledgeos.Ingest --db knowledge_os.db --sources config/sources.json"
+sbt "runMain knowledgeos.Ingest --db knowledge_os.db --sources config/sources.json --date 2026-05-27"
 
 # Scoring only
 python -m knowledge_os.topic_scoring --db knowledge_os.db --config config/topic_scoring.json
@@ -498,7 +520,7 @@ python -m knowledge_os.topic_scoring --db knowledge_os.db --config config/topic_
 python -m knowledge_os.personas --db knowledge_os.db --catalog personas/catalog.json --users-dir configs/users
 
 # Persona digest selection/ranking + rendering only
-python -m knowledge_os.persona_digest render --db knowledge_os.db --catalog personas/catalog.json --overwrite
+python -m knowledge_os.persona_digest render --db knowledge_os.db --catalog personas/catalog.json --date 2026-05-27 --overwrite
 
 # Feedback sync only
 python -m knowledge_os.feedback_events --db knowledge_os.db --user vb --source knos-digest/YYYY-MM-DD.md
@@ -512,8 +534,8 @@ Implemented in this branch:
 - Python topic scoring command: `python -m knowledge_os.topic_scoring --db knowledge_os.db --config config/topic_scoring.example.json`.
 - Python persona materializer: `python -m knowledge_os.personas --db knowledge_os.db --catalog personas/catalog.json --users-dir configs/users`.
 - Python feedback event sync: `python -m knowledge_os.feedback_events --db knowledge_os.db --user vb --source knos-digest/YYYY-MM-DD.md`.
-- Python persona digest renderer: `python -m knowledge_os.persona_digest render --db knowledge_os.db --catalog personas/catalog.json`.
-- Scala catalog ingestion entry point: `sbt "runMain knowledgeos.Ingest --db knowledge_os.db --sources config/sources.example.json"`.
+- Python persona digest renderer with persona-level cadence: `python -m knowledge_os.persona_digest render --db knowledge_os.db --catalog personas/catalog.json --date 2026-05-27`.
+- Scala catalog ingestion entry point with date-aware `fetched_at`: `sbt "runMain knowledgeos.Ingest --db knowledge_os.db --sources config/sources.example.json --date 2026-05-27"`.
 - Modular runner: `bash scripts/run_modular_digest.sh --db knowledge_os.db --overwrite`.
 - WhatsApp website-link prompt: `bash scripts/send_whatsapp_digest_prompt.sh --user kintu`.
 - Scala tests cover catalog ingestion; Python tests cover persona selection/rendering.

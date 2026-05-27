@@ -1,7 +1,7 @@
 package knowledgeos
 
 import java.sql.Connection
-import java.time.Instant
+import java.time.{Instant, LocalDate, ZoneOffset}
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.concurrent.duration.Duration
 import scala.util.control.NonFatal
@@ -46,6 +46,7 @@ object Ingest:
     val args = Args.parse(raw)
     val db = args.getOrElse("db", "knowledge_os.db")
     val configPath = Args.required(args, "sources")
+    val fetchedAt = ingestFetchedAt(args.get("date"))
     log(s"Loading source config from $configPath")
     val config = ujson.read(os.read(os.Path(configPath, os.pwd)))
     val stories = fetchConfiguredSources(config)
@@ -54,7 +55,7 @@ object Ingest:
       conn.setAutoCommit(false)
       try
         initCatalogSchema(conn)
-        stories.foreach(upsertStory(conn, _))
+        stories.foreach(upsertStory(conn, _, fetchedAt))
         conn.commit()
         log(s"Committed ${stories.size} catalog item(s)")
       catch
@@ -64,6 +65,12 @@ object Ingest:
           throw ex
     }
     println(s"Upserted ${stories.size} catalog item(s)")
+
+  def ingestFetchedAt(date: Option[String]): String =
+    date match
+      case Some(value) if value.trim.nonEmpty =>
+        LocalDate.parse(value.trim).atStartOfDay(ZoneOffset.UTC).toInstant.toString
+      case _ => Instant.now().toString
 
   def fetchConfiguredSources(config: ujson.Value): Vector[Story] =
     given ExecutionContext = ExecutionContext.global
@@ -366,6 +373,9 @@ object Ingest:
     catch case _: Throwable => "unknown"
 
   def upsertStory(conn: Connection, story: Story): Unit =
+    upsertStory(conn, story, Instant.now().toString)
+
+  def upsertStory(conn: Connection, story: Story, fetchedAt: String): Unit =
     val authorId = upsertAuthor(conn, story.source, story.authorName)
     Db.execute(
       conn,
@@ -398,7 +408,7 @@ object Ingest:
         story.score,
         story.commentCount,
         story.itemText.orNull,
-        Instant.now().toString,
+        fetchedAt,
         story.publishedAt.orNull,
         story.metadataJson
       )
