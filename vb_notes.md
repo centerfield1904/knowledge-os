@@ -3,6 +3,13 @@
 
 ## Usage
 
+### Pipeline debug commands
+
+e2e pipeline
+```bash
+ bash scripts/run_modular_digest.sh --db knowledge_os.debug.db --output /tmp/knos-digest
+ ```
+
 ### Useful db commands
 
 List down materialized topics
@@ -15,6 +22,10 @@ List items by topic and scores
 
 ```sql
 select t.name as topic, round(s.score, 3) as topic_score, i.source, i.title, coalesce(i.author_name, '') as author, coalesce(i.published_at, i.fetched_at) as item_date, i.url from item_topic_scores s join items i on i.item_id = s.item_id join topics t on t.topic_id = s.topic_id order by s.score desc, item_date desc limit 50;
+```
+
+```sql
+select t.name as topic, round(s.score, 3) as topic_score, i.source, i.title, i.published_at, i.fetched_at from item_topic_scores s join items i on i.item_id = s.item_id join topics t on t.topic_id = s.topic_id where s.score > 0.3 AND topic = 'AI Research' order by s.score desc, i.published_at desc limit 50;
 ```
 
 ### Ingest and Analyze debug db
