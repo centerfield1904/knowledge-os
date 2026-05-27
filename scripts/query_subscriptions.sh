@@ -8,7 +8,30 @@ cd "$PROJECT_ROOT"
 
 PYTHON="${PYTHON:-$PROJECT_ROOT/venv/bin/python}"
 DB="${DB:-knowledge_os.db}"
+QUERY_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --db)
+      DB="$2"
+      shift 2
+      ;;
+    --db=*)
+      DB="${1#*=}"
+      shift
+      ;;
+    --)
+      shift
+      QUERY_ARGS+=("$@")
+      break
+      ;;
+    *)
+      QUERY_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
 
 "$PYTHON" -m knowledge_os.query_pipeline --db "$DB" users
 echo
-"$PYTHON" -m knowledge_os.query_pipeline --db "$DB" subscriptions "$@"
+"$PYTHON" -m knowledge_os.query_pipeline --db "$DB" subscriptions "${QUERY_ARGS[@]}"

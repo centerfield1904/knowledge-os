@@ -54,10 +54,10 @@
     "ai_researcher": {
       "name": "AI / ML Researcher",
       "selection": {
-        "min_topic_score": 0.42,
+        "min_topic_score": 0.3,
         "cadence": "daily",
         "freshness_days": 1,
-        "sources": ["hackernews", "substack"],
+        "sources": ["hackernews"],
         "max_items": 8
       },
       "topics": [
@@ -71,10 +71,10 @@
     "llm_researcher": {
       "name": "LLM Researcher",
       "selection": {
-        "min_topic_score": 0.42,
+        "min_topic_score": 0.3,
         "cadence": "daily",
         "freshness_days": 1,
-        "sources": ["hackernews", "substack"],
+        "sources": ["hackernews"],
         "max_items": 8
       },
       "topics": [
