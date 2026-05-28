@@ -260,12 +260,16 @@ bash scripts/deliver_whatsapp_digest.sh \
 Cron example for the second Mac:
 
 ```cron
+CRON_TZ=Asia/Kolkata
 SHELL=/bin/bash
 PATH=/opt/homebrew/bin:/opt/homebrew/opt/openjdk/bin:/usr/local/bin:/usr/bin:/bin
 JAVA_HOME=/opt/homebrew/opt/openjdk
 
-0 14 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_vb_whatsapp_digest.sh >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
+0 9 * * * /Users/vb/dev/projects/knowledge-os/scripts/run_catalog_ingest.sh >> /Users/vb/Library/Logs/knowledge-os-ingest.log 2>&1
+0 14 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_vb_kintu_whatsapp_digest.sh >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
 ```
+
+In this split schedule, the 9 AM job calls `scripts/run_modular_digest.sh` to ingest catalog data and render `knos-digest/YYYY-MM-DD.md`. Website export/build runs in the remote GitHub Action after the rendered digest change is pushed. The 2 PM job sends WhatsApp messages from the existing rendered digest and does not regenerate the catalog or digest.
 
 The cron host must have:
 
@@ -412,6 +416,7 @@ _A quieter read for the weekend._
 
 ### Delivery
 - **`scripts/run_modular_digest.sh`** — canonical persona digest pipeline; passes `--date` into ingestion and rendering; writes `knos-digest/YYYY-MM-DD.md`
+- **`scripts/run_catalog_ingest.sh`** — cron-safe morning wrapper around `scripts/run_modular_digest.sh --overwrite`
 - **`scripts/send_whatsapp_digest_prompt.sh`** — prints a WhatsApp-ready summary plus persona-filtered website link for one configured user
 - **`scripts/deliver_whatsapp_digest.sh`** — runs digest generation, website refresh, recipient lookup, and dry-run or real WhatsApp delivery
 - **`scripts/baileys_send.mjs`** — local Baileys WhatsApp Web sender used by the delivery wrapper
