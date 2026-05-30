@@ -473,3 +473,43 @@ def test_whatsapp_summary_uses_user_persona_url(tmp_path):
     assert summary["website_url"] == "https://www.bvaibhav.info/knos-digest?personas=ux_design"
     assert summary["item_count"] == 1
     assert "Pure design story" in summary["message"]
+
+
+def test_whatsapp_summary_ranks_teasers_by_points_and_strips_emoji(tmp_path):
+    users_dir = tmp_path / "users"
+    users_dir.mkdir(exist_ok=True)
+    _write_user(users_dir / "vb.json", "vb", ["ai_researcher"])
+    digest = tmp_path / "2026-05-30.md"
+    digest.write_text(
+        "\n".join([
+            "🦅 *Knowledge Digest* - 2026-05-30",
+            "",
+            "<!-- knos-persona: ai_researcher | AI / ML Researcher -->",
+            "## AI / ML Researcher",
+            "",
+            "*AI Research*",
+            "- [ ] Low signal piece",
+            "  published: 2026-05-29 | source: hackernews | ↑10 | by a",
+            "  🔗 https://example.com/low",
+            "- [ ] 📰 Newsletter headliner",
+            "  published: 2026-05-29 | source: substack | by b",
+            "  🔗 https://example.com/news",
+            "- [ ] High signal piece",
+            "  published: 2026-05-29 | source: hackernews | ↑1989 | by c",
+            "  🔗 https://example.com/high",
+            "- [ ] Mid signal piece",
+            "  published: 2026-05-29 | source: hackernews | ↑500 | by d",
+            "  🔗 https://example.com/mid",
+            "",
+        ])
+    )
+    summary = whatsapp_summary(str(users_dir / "vb.json"), str(digest))
+    lines = summary["message"].splitlines()
+    teasers = [l[2:] for l in lines if l.startswith("- ")]
+    # Top 3 by points, highest first; the 10-point item is dropped from teasers.
+    assert teasers == ["High signal piece", "Mid signal piece", "Newsletter headliner"]
+    # The leading source emoji must not appear in the teaser.
+    assert "📰" not in summary["message"]
+    # Four items total, so the footer advertises the full set, not "Read it here".
+    assert "Full set (4):" in summary["message"]
+    assert summary["message"].startswith("Made you a digest — a few worth a look:")

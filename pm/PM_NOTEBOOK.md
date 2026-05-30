@@ -34,6 +34,12 @@ I almost built email infrastructure (SMTP, app passwords, env vars) before askin
 **Architecture should protect product iteration**
 The four-module split is not an engineering cleanliness exercise. It keeps product changes cheap: scraping can run on its own, topic scoring can change without delivering a digest, users can subscribe to global topics without forking the catalog, and feedback can improve ranking without mutating source data. The product benefit is faster iteration on taste without making every run do every expensive step.
 
+**Don't claim what the product doesn't do**
+The site subtitle said the digest "learns what matters over time." It doesn't — there's no behavioral learning; the interest profile is explicit. A sharp first user (Mikey is an LLM engineer) notices that kind of gap immediately, and once they catch one inflated claim they discount the rest. What fixed it wasn't softer language — it was finding the thing that *is* true and is actually better: the digest is stateful, it suppresses what it's already shown you, so it gets quieter over time. The honest claim was the stronger claim. I keep relearning that the real differentiator is usually more interesting than the aspirational one.
+
+**The first three lines are the product**
+The WhatsApp teaser showed the first three items in file order, which buried a 1,989-point piece at position seven behind a 343-point one. For a glanced notification, those three lines *are* the product — they decide whether the link gets tapped at all. Ordering them by signal cost nothing and changed what the message leads with. The lesson generalizes: wherever attention is rationed (a notification, a subject line, a card), spend the scarce slots on your strongest cards, not whatever the pipeline emitted first.
+
 ---
 
 ## Questions I'm Sitting With

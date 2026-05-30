@@ -384,6 +384,7 @@ def parse_persona_markdown(path: str) -> List[Dict]:
     current_persona_id = ""
     current_persona_name = ""
     current_topic = ""
+    current_story: Optional[Dict] = None
     stories: List[Dict] = []
     for raw_line in Path(path).read_text().splitlines():
         line = raw_line.strip()
@@ -400,18 +401,35 @@ def parse_persona_markdown(path: str) -> List[Dict]:
         checkbox = CHECKBOX_RE.match(line)
         if checkbox and current_persona_id:
             title = checkbox.group(1).replace("📰 ", "", 1)
-            stories.append({
+            current_story = {
                 "persona_id": current_persona_id,
                 "persona_name": current_persona_name,
                 "topic": current_topic,
                 "title": title,
-            })
+                "points": 0,
+            }
+            stories.append(current_story)
+            continue
+        # The metadata line after a story carries HN points like "↑343".
+        if current_story is not None:
+            points_match = re.search(r"↑(\d+)", line)
+            if points_match:
+                current_story["points"] = int(points_match.group(1))
     return stories
 
 
-def persona_url(persona_ids: Iterable[str], base_url: str = BASE_URL) -> str:
+def persona_url(
+    persona_ids: Iterable[str],
+    base_url: str = BASE_URL,
+    digest_date: Optional[str] = None,
+) -> str:
     encoded = ",".join(quote(pid, safe="") for pid in persona_ids)
-    return f"{base_url}?personas={encoded}" if encoded else base_url
+    params = []
+    if encoded:
+        params.append(f"personas={encoded}")
+    if digest_date:
+        params.append(f"date={quote(digest_date, safe='')}")
+    return f"{base_url}?{'&'.join(params)}" if params else base_url
 
 
 def whatsapp_summary(
@@ -428,9 +446,17 @@ def whatsapp_summary(
     for story in selected:
         if story["topic"] and story["topic"] not in topics:
             topics.append(story["topic"])
-    headlines = [story["title"] for story in selected[:headline_limit]]
+    # Lead the teaser with the strongest items (by HN points), not file order.
+    # Titles are already emoji-stripped in parse_persona_markdown.
+    ranked = sorted(selected, key=lambda story: story.get("points", 0), reverse=True)
+    headlines = [story["title"] for story in ranked[:headline_limit]]
     effective_base_url = base_url or user_config.get("delivery", {}).get("base_url") or BASE_URL
-    url = persona_url(personas, effective_base_url)
+    # Link to the specific digest the message describes so re-opening an old message
+    # shows that day's items, not the latest export. Only pin when the filename stem is
+    # a real YYYY-MM-DD (the canonical artifact name); otherwise fall back to "latest".
+    stem = Path(digest_path).stem
+    digest_date = stem if re.fullmatch(r"\d{4}-\d{2}-\d{2}", stem) else None
+    url = persona_url(personas, effective_base_url, digest_date=digest_date)
     summary = {
         "digest_path": digest_path,
         "website_url": url,
@@ -441,20 +467,20 @@ def whatsapp_summary(
     }
     if not selected:
         summary["message"] = (
-            "Nothing worth noticing surfaced in today's digest.\n\n"
-            "Use this as a quiet window: stay focused, protect your attention, "
-            "and spend the time on the work that matters."
+            "Quiet one today — nothing worth sending your way. Back tomorrow."
         )
         return summary
 
-    topic_text = ", ".join(topics[:3])
+    count = len(selected)
+    shown = len(headlines)
+    if count == 1:
+        opener = "Today's read — 1 picked:"
+    elif count > shown:
+        opener = f"Today's reads — {count} picked, top {shown}:"
+    else:
+        opener = f"Today's reads — {count} picked:"
     headline_text = "\n".join(f"- {headline}" for headline in headlines)
-    summary["message"] = (
-        f"Made you a small digest: {len(selected)} item{'s' if len(selected) != 1 else ''}"
-        f"{f' across {topic_text}' if topic_text else ''}.\n\n"
-        f"{headline_text}\n\n"
-        f"Read it here: {url}"
-    )
+    summary["message"] = f"{opener}\n\n{headline_text}\n\n{url}"
     return summary
 
 

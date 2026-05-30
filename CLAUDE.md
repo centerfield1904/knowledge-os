@@ -79,6 +79,7 @@ I'm an engineer using this project to build product management skills. When PM m
 - Persona cadence is source-aware: HN uses `fetched_at`; RSS/Substack uses `published_at`
 - Legacy archive naming: `archive/YYYY-MM-DD_{stories,digest}.{json,txt}`
 - HN username `vb7132` is hardcoded in `engagement.py` and `engagement_summary.py`
+- WhatsApp digest links: `persona_url()` in `persona_digest.py` appends `&date=YYYY-MM-DD` derived from the digest filename stem (only when it matches a real date), so an old message reopens that day's items, not the latest site export; the site page (`bvaibhav-info/src/app/knos-digest/page.tsx`) reads the `date` param (`latest`/`all`/`YYYY-MM-DD`)
 
 ## Testing
 

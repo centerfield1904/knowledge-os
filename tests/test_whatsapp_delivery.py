@@ -50,6 +50,39 @@ def test_prepare_messages_builds_persona_website_message(tmp_path):
     assert not messages[0].skipped
 
 
+def test_prepare_messages_pins_dated_digest_link(tmp_path):
+    users_dir = tmp_path / "users"
+    users_dir.mkdir()
+    _write_user(users_dir / "kintu.json", "kintu", ["ux_design"])
+    # Canonical artifact name (YYYY-MM-DD.md) should pin the link to that day.
+    digest_path = tmp_path / "2026-05-29.md"
+    digest_path.write_text(
+        "\n".join([
+            "*Knowledge Digest*",
+            "",
+            "<!-- knos-persona: ux_design | UX / Design -->",
+            "## UX / Design",
+            "",
+            "*UX / Design*",
+            "- [ ] Pure design story",
+            "  https://example.com/story",
+            "",
+        ])
+    )
+
+    messages = prepare_messages(
+        user_ids=["kintu"],
+        recipients={"kintu": "+15551234567"},
+        digest_path=str(digest_path),
+        users_dir=str(users_dir),
+    )
+
+    assert messages[0].website_url == (
+        "https://www.bvaibhav.info/knos-digest?personas=ux_design&date=2026-05-29"
+    )
+    assert "date=2026-05-29" in messages[0].message
+
+
 def test_prepare_messages_sends_zero_item_focus_message(tmp_path):
     users_dir = tmp_path / "users"
     users_dir.mkdir()
@@ -66,8 +99,8 @@ def test_prepare_messages_sends_zero_item_focus_message(tmp_path):
 
     assert messages[0].item_count == 0
     assert not messages[0].skipped
-    assert "Nothing worth noticing surfaced" in messages[0].message
-    assert "stay focused" in messages[0].message
+    assert "Quiet one today" in messages[0].message
+    assert "Back tomorrow" in messages[0].message
 
 
 def test_prepare_messages_can_skip_zero_item_users(tmp_path):
