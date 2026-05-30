@@ -118,11 +118,12 @@
 **2026-02-11** - Initial architecture: semantic matching, SQLite continuity, WhatsApp delivery  
 **2026-02-13** - v2 migration: improved storage layer, better topic handling  
 **2026-04-30** - Fixed empty digest bug: `get_undelivered_item_ids` replaces `is_new` as the display gate; `--rerun` flag clears archive + stale feedback; `--push` flag makes git push opt-in  
-**2026-05-13** - Four-module architecture adopted: catalog, topic scoring, subscriptions/digests, and feedback are independent; Scala owns ingestion plus selection/ranking; Python owns ML scoring, config, rendering, and feedback parsing
+**2026-05-13** - Four-module architecture adopted: catalog, topic scoring, subscriptions/digests, and feedback are independent; Scala owns concurrent ingestion; Python owns ML scoring, config/materialization, persona selection/rendering, and feedback parsing
 **2026-05-16** - Launch-readiness review: Kintu source coverage improved with design feeds; Mikey threshold tuned; remaining VB risks are side-effectful dry runs, offline scoring reliability, enrichment gaps, and candidate/filter observability
-**2026-05-27** - Persona cadence implemented in canonical renderer: daily/weekly windows use `items.published_at`, UX is weekly on Fridays, zero-item digests are valid, and Scala ingestion accepts `--date` for date-aware backfills
+**2026-05-27** - Persona cadence implemented in canonical renderer: daily/weekly windows, UX weekly on Fridays, zero-item digests, and Scala ingestion `--date` for date-aware backfills. Cadence timestamp choice was revised on 2026-05-29 to be source-aware.
 **2026-05-29** - Source-aware persona cadence: Hacker News now uses `items.fetched_at` for daily/weekly cadence windows; Substack/RSS continues to use `items.published_at`. Official HN Firebase API exposes near-real-time top/new/best lists and item timestamps, not a date-addressable historical front-page endpoint, so `--date` remains the logical snapshot date for HN ingest/backfill runs.
 **2026-05-30** - Historical HN ingest: added `--historical-hn` to fetch one requested HN submission date through Algolia `search_by_date`; item rows record `items.source_api` (`hackernews_firebase`, `hackernews_algolia`, `rss`) for provider-aware filtering.
+**2026-05-30** - Docs/config cleanup: removed stale `config/user.vb.example.json`; canonical user subscriptions live under `configs/users/*.json`. README and ARCHITECTURE now document the modular production path, source-aware cadence, historical HN mode, remote website publish, and send-only WhatsApp delivery wrappers.
 
 ---
 
@@ -154,3 +155,10 @@ Dated record of what closed each session. Read by `/week-review` to compute proj
 - [x] Add VS Code workspace setup for the mixed Python/Scala project (`.vscode/settings.json`, recommended extensions, tasks, and debug launch configs)
 - [x] Validate Scala ingest debugging through Metals with `knowledgeos.Ingest --db knowledge_os.debug.db --sources config/sources.example.json`
 - [x] Confirm catalog ingest run writes to a debug SQLite DB without touching `knowledge_os.db` (136 catalog items upserted in the smoke run)
+
+### 2026-05-30
+- [x] Add source-aware persona cadence (`fetched_at` for HN, `published_at` for RSS/Substack)
+- [x] Add historical HN backfill mode through Algolia and persist `items.source_api`
+- [x] Add fetched-item query filters for score, topic, title text, source, and source API
+- [x] Split scheduled operation into 9 AM ingest/render/push and 2 PM send-only WhatsApp delivery
+- [x] Update README/ARCHITECTURE/NEXT for the current modular production path and remove stale user config docs

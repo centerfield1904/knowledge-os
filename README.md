@@ -8,7 +8,7 @@ Curates stories from Hacker News and Substack RSS feeds, matches them to persona
 
 ## How It Works
 
-The architecture is moving from a single digest pipeline to four independent modules connected by SQLite.
+The canonical architecture is four independent modules connected by SQLite.
 
 ```mermaid
 flowchart LR
@@ -44,7 +44,7 @@ flowchart LR
     feedback --> events
 ```
 
-Current production still supports `scripts/run_digest_v2.sh`; the new module commands are being added alongside it and are documented below.
+Current production uses the modular path: morning catalog ingest/render through `scripts/run_catalog_ingest.sh`, remote website publish from the pushed digest artifact, and afternoon WhatsApp delivery from the existing rendered digest. `scripts/run_digest_v2.sh` remains as a legacy pipeline for compatibility and comparison only.
 
 ---
 
@@ -57,22 +57,20 @@ uv pip install -e . -r requirements.txt --python venv/bin/python
 # Install test dependencies
 uv pip install -r requirements-dev.txt --python venv/bin/python
 
-# Scala toolchain for ingestion and digest selection/ranking
+# Scala toolchain for ingestion
 brew install openjdk sbt scala
-export JAVA_HOME=/usr/local/opt/openjdk
-export PATH="/usr/local/opt/openjdk/bin:$PATH"
+export JAVA_HOME=/opt/homebrew/opt/openjdk
+export PATH="$JAVA_HOME/bin:$PATH"
 
-# Run full digest pipeline
+# Run the production morning ingest/render and push the digest artifact
+bash scripts/run_catalog_ingest.sh
+
+# Send from the existing rendered digest artifact
+bash scripts/daily_vb_whatsapp_digest.sh
+bash scripts/weekly_kintu_whatsapp_digest.sh
+
+# Legacy v2 pipeline for comparison/debugging only
 bash scripts/run_digest_v2.sh
-
-# Fetch and store only (no digest generation — for 6-hour cron)
-bash scripts/run_digest_v2.sh --fetch-only
-
-# Re-run today's digest (clears archive files + stale delivered feedback)
-bash scripts/run_digest_v2.sh --rerun
-
-# Run and push digest to GitHub
-bash scripts/run_digest_v2.sh --push
 
 # Run tests (integration tests require DB and are excluded in CI)
 venv/bin/python -m pytest tests/ -v -m "not integration"
@@ -96,8 +94,8 @@ bash scripts/run_modular_digest.sh --db /tmp/knowledge_os.2026-02-12.db --date 2
 # Print a WhatsApp summary with persona-filtered website link
 bash scripts/send_whatsapp_digest_prompt.sh --user kintu
 
-# Generate digest, refresh website data, and prepare WhatsApp delivery
-bash scripts/deliver_whatsapp_digest.sh --dry-run
+# Dry-run WhatsApp delivery from the existing digest without site work
+bash scripts/deliver_whatsapp_digest.sh --skip-digest --skip-site --dry-run
 
 # Operational commands log progress to stderr, keeping JSON/stdout output parseable.
 
@@ -135,8 +133,8 @@ venv/bin/python -m streamlit run src/knowledge_os/dashboard.py
 
 Delivery is intentionally split into three steps:
 
-1. Generate and publish the website-facing digest.
-2. Refresh the website digest export.
+1. Generate the website-facing digest and push the markdown artifact.
+2. Let the remote `bvaibhav-info` GitHub Action export/build the website from that artifact.
 3. Send a short WhatsApp message that links to the persona-filtered website view.
 
 The canonical digest artifact is:
@@ -156,18 +154,22 @@ https://www.bvaibhav.info/knos-digest?personas=<comma-separated-persona-ids>
 Run the persona digest pipeline once per day on the delivery machine:
 
 ```bash
-cd /Users/vb/.openclaw/workspace/knowledge-os
+cd /Users/vb/dev/projects/knowledge-os
 
 export JAVA_HOME=/opt/homebrew/opt/openjdk
 export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"
 
+bash scripts/run_catalog_ingest.sh --date "$(date +%F)"
+```
+
+This performs catalog ingestion, persona materialization, topic scoring, combined digest rendering, and a git push of `knos-digest/YYYY-MM-DD.md` when the artifact changed. To run the same pipeline without committing/pushing, call `scripts/run_modular_digest.sh` directly:
+
+```bash
 bash scripts/run_modular_digest.sh \
   --db knowledge_os.db \
   --date "$(date +%F)" \
   --overwrite
 ```
-
-This performs catalog ingestion, persona materialization, topic scoring, and combined digest rendering.
 
 The `--date` is threaded into ingestion as `items.fetched_at` for audit/backfill runs and into rendering as the digest date. Persona selection uses source-aware cadence timestamps: Hacker News uses `items.fetched_at`; Substack/RSS uses `items.published_at`.
 
@@ -249,9 +251,11 @@ bash scripts/query_fetched_items.sh --date "$(date +%F)" --topic "Data Science" 
 
 If `query_fetched_items.sh` shows scored rows but the debug render reports `outside_cadence_window`, the scorer worked and the item was filtered by source-aware cadence eligibility. For Hacker News, inspect `fetched_at`; for Substack/RSS, inspect `published_at`.
 
-### Website refresh
+### Website publish
 
-The website export reads `knos-digest/` and writes `public/data/knos-digest.json` in the `bvaibhav-info` repo:
+The scheduled publish path is remote. `scripts/run_catalog_ingest.sh` commits and pushes the latest `knos-digest/YYYY-MM-DD.md`; the GitHub Action in the `bvaibhav-info` repo then exports/builds the website from that digest artifact.
+
+For manual local website verification only, run the export in the `bvaibhav-info` checkout:
 
 ```bash
 cd /Users/vb/dev/projects/bvaibhav-info
@@ -259,14 +263,12 @@ npm run export-digest
 npm run build
 ```
 
-If the website is deployed from git, commit and push the refreshed website data from that repo after `npm run export-digest`.
-
 ### WhatsApp delivery
 
 Each user config in `configs/users/*.json` lists the personas that user subscribes to. The prompt command turns that into a personalized WhatsApp message and website URL:
 
 ```bash
-cd /Users/vb/.openclaw/workspace/knowledge-os
+cd /Users/vb/dev/projects/knowledge-os
 
 bash scripts/send_whatsapp_digest_prompt.sh --user vb --date "$(date +%F)"
 bash scripts/send_whatsapp_digest_prompt.sh --user kintu --date "$(date +%F)"
@@ -432,26 +434,30 @@ sudo pmset -c sleep 0
 
 ## Current Code Summary
 
-The current production path remains `scripts/run_digest_v2.sh`:
+The current production path is modular:
 
-1. `src/knowledge_os/fetch_stories.py` fetches Hacker News top stories.
-2. `src/knowledge_os/fetch_substack.py` fetches configured Substack RSS feeds when `feedparser` is installed and the feed/source is due.
-3. The shell script merges both outputs into `all_stories.json`.
-4. `src/knowledge_os/process_digest.py` filters by age and source frequency, scores stories with `TopicMatcher`, stores item/topic/author/digest records in SQLite, enriches stories with HN comment summaries and author karma, detects engagement opportunities, and writes digest text.
-5. `scripts/run_digest_v2.sh` writes `digest.txt`, archives raw stories under `archive/YYYY-MM-DD_stories.json`, archives the digest under `archive/YYYY-MM-DD_digest.txt`, and copies the markdown-ready digest to `knos-digest/YYYY-MM-DD.md`.
+1. `scripts/run_catalog_ingest.sh` runs the morning cron path and publishes only the rendered digest artifact when it changes.
+2. `scripts/run_modular_digest.sh` initializes the schema, ingests catalog rows, materializes personas, scores topics, and renders `knos-digest/YYYY-MM-DD.md`.
+3. `knowledgeos.Ingest` fetches current HN stories through Firebase by default, or a requested historical HN submission date through Algolia when `--historical-hn` is passed. RSS/Substack fetching is unchanged.
+4. `src/knowledge_os/persona_digest.py` selects from precomputed scores using persona selection rules, source-aware cadence timestamps, optional send-day gates, and exclusive persona assignment, then renders one canonical persona-marked markdown file.
+5. `scripts/daily_vb_whatsapp_digest.sh` and `scripts/weekly_kintu_whatsapp_digest.sh` send from the existing markdown artifact at 2 PM without regenerating the catalog or website.
+6. The website export/build is handled by the remote `bvaibhav-info` GitHub Action after the digest artifact is pushed.
 
 The main runtime modules are:
 
 | Area | Current Files | Notes |
 |------|---------------|-------|
-| Fetching | `src/knowledge_os/fetch_stories.py`, `src/knowledge_os/fetch_substack.py` | HN is required; Substack depends on configured feeds and `feedparser`. |
-| Matching | `src/knowledge_os/match_topics.py` | Loads `all-MiniLM-L6-v2`, computes topic embeddings, and attaches `matched_topic`, `topic_score`, and `all_topic_scores`. |
-| Processing | `src/knowledge_os/process_digest.py`, `src/knowledge_os/digest_pipeline.py`, `src/knowledge_os/digest_formatter.py`, `src/knowledge_os/digest_filters.py` | CLI wrapper, orchestration, formatting, and filters are split. |
-| Storage | `src/knowledge_os/storage_interface.py`, `src/knowledge_os/storage_sqlite.py` | SQLite is the implemented backend. Postgres is only a future interface target. |
+| Catalog / Ingestion | `src/main/scala/knowledgeos/Ingest.scala` | Concurrent source fetching, URL dedupe, author upserts, `items.fetched_at`, `items.published_at`, and `items.source_api`. |
+| Topic Scoring | `src/knowledge_os/topic_scoring.py`, `src/knowledge_os/match_topics.py` | Loads `all-MiniLM-L6-v2`, scores global topic definitions, and stores scores by scoring config. |
+| Personas / Subscriptions | `src/knowledge_os/personas.py`, `personas/catalog.json`, `configs/users/*.json` | Materializes global topics and user persona subscriptions. |
+| Persona Digest | `src/knowledge_os/persona_digest.py` | Selects/renders from scored rows using source-aware cadence, persona thresholds, source filters, send days, and exclusive assignment. |
+| Delivery | `scripts/deliver_whatsapp_digest.sh`, `src/knowledge_os/whatsapp_delivery.py`, `scripts/baileys_send.mjs` | Sends WhatsApp website-link summaries through the local Baileys session; zero-item users receive a focus message by default. |
+| Queries | `src/knowledge_os/query_pipeline.py`, `scripts/query_*.sh` | Operational DB summaries, including fetched-item filters by date, score, topic, title text, source, and `source_api`. |
+| Storage | `src/knowledge_os/schema.py`, `src/knowledge_os/storage_interface.py`, `src/knowledge_os/storage_sqlite.py` | Modular schema is initialized by `schema.py`; legacy storage remains for `run_digest_v2.sh`. |
 | Engagement | `src/knowledge_os/engagement.py`, `src/knowledge_os/engagement_summary.py` | Detects Ask/Show HN, early threads, debates, syncs `vb7132` comments, and generates engagement reports. |
 | Read tracking | `src/knowledge_os/sync_reading_log.py` | Parses checked digest items and records `read` / `read_with_note` feedback. |
 | Dashboard | `src/knowledge_os/dashboard.py` | Streamlit observability/config UI. |
-| Output | `digest.txt`, `archive/`, `knos-digest/` | Generated locally and ignored by git except for `knos-digest/README.md`. |
+| Output | `knos-digest/YYYY-MM-DD.md` | Canonical website-facing digest artifact; the morning wrapper commits and pushes it when it changes. |
 
 Legacy/experimental scripts were removed from the active tree:
 
@@ -459,17 +465,17 @@ Legacy/experimental scripts were removed from the active tree:
 - The older WhatsApp feedback-button experiment files are gone.
 - Historical engagement integration code/docs are gone.
 
-For daily operation, prefer `scripts/run_digest_v2.sh` and the files under `knos-digest/`.
+`scripts/run_digest_v2.sh` still exists for compatibility and comparison. Do not use it for scheduled production delivery.
 
-The new modular path is intentionally split:
+The modular path is intentionally split:
 
 | Module | Owner | Purpose |
 |--------|-------|---------|
 | Catalog / Ingestion | Scala | Concurrent source fetching, `items.url` dedupe, author and content upserts. |
 | Topic Scoring | Python | Configurable ML scoring, global topics, historical score sets by scoring config. |
 | Personas / Subscriptions | Python | Resolve persona assignments into global topics and user subscriptions. |
-| Digests | Scala | User-specific selection and ranking from precomputed scores; each run creates a new `digest_id`. |
-| Rendering / Feedback | Python | Markdown rendering from `digest_items`, user-per-item feedback ingestion, and engagement/read summaries. |
+| Digests / Rendering | Python | Persona-aware selection and markdown rendering from precomputed scores. |
+| Feedback / Engagement | Python | User-per-item feedback ingestion, read tracking, and engagement summaries. |
 
 ---
 
@@ -477,10 +483,10 @@ The new modular path is intentionally split:
 
 | Source | Fetcher | Config Key | Marker |
 |--------|---------|------------|--------|
-| Hacker News | `src/knowledge_os/fetch_stories.py` (API) | `sources.hackernews` | (none) |
-| Substack | `src/knowledge_os/fetch_substack.py` (RSS) | `sources.substack.feeds` | 📰 |
+| Hacker News | `knowledgeos.Ingest` via Firebase for current runs; Algolia for `--historical-hn` | `sources.hackernews` | (none) |
+| Substack/RSS | `knowledgeos.Ingest` RSS adapter; legacy `fetch_substack.py` remains for `run_digest_v2.sh` | `sources.substack.feeds` | 📰 |
 
-Stories from all sources share a uniform schema (`id`, `title`, `url`, `score`, `by`, `time`, `descendants`, `text`, `source`, `published_at`) and go through the same semantic matching pipeline.
+Stories from all sources are normalized into the `items` table. `published_at` stores the source-native publication/submission timestamp, `fetched_at` stores the logical catalog snapshot date, and `source_api` records the concrete provider (`hackernews_firebase`, `hackernews_algolia`, or `rss`).
 
 ---
 
@@ -589,7 +595,20 @@ Six tabs:
 
 ---
 
-## Configuration (`config.json`)
+## Modular Configuration
+
+Production modular runs use separate config files by module:
+
+- `config/sources.example.json` — ingestion sources, HN throttle/retry settings, RSS feeds, and source limits
+- `config/topic_scoring.example.json` — active scoring config and model/content-field settings
+- `personas/catalog.json` — persona topics, keywords, selection thresholds, cadence, send days, source filters, and max items
+- `configs/users/*.json` — user identity, timezone, and subscribed persona IDs
+
+`config/user.vb.example.json` was removed because user subscriptions now live under `configs/users/`.
+
+## Legacy Configuration (`config.json`)
+
+The legacy `scripts/run_digest_v2.sh` path and dashboard Config tab still use `config.json`.
 
 The `frequency` field on each source controls which days its stories surface in the digest. All sources are still fetched and stored daily for tracking — frequency only affects digest inclusion.
 
@@ -655,8 +674,7 @@ knowledge-os/
 │
 ├── config/
 │   ├── sources.example.json         # Ingestion config, including HN throttle/retry settings
-│   ├── topic_scoring.example.json   # Topic scoring config
-│   └── user.vb.example.json         # User subscription config
+│   └── topic_scoring.example.json   # Topic scoring config
 ├── configs/
 │   ├── base.json
 │   └── users/{vb,kintu,mikey}.json  # Persona-driven user configs
@@ -692,17 +710,20 @@ knowledge-os/
 │   └── dashboard.py             # Streamlit UI
 │
 ├── scripts/
+│   ├── run_catalog_ingest.sh    # Cron-safe morning ingest/render + digest artifact push
 │   ├── run_modular_digest.sh    # Canonical persona digest runner
 │   ├── send_whatsapp_digest_prompt.sh # Website-link WhatsApp prompt
 │   ├── deliver_whatsapp_digest.sh # End-to-end website + WhatsApp delivery wrapper
 │   ├── daily_vb_whatsapp_digest.sh # Cron-safe daily VB delivery
+│   ├── weekly_kintu_whatsapp_digest.sh # Cron-safe Friday Kintu delivery
 │   ├── baileys_send.mjs         # Baileys WhatsApp Web sender
 │   ├── query_catalog.sh         # Catalog items/authors summary
+│   ├── query_fetched_items.sh   # Fetched-item browser with score/topic/title/source filters
 │   ├── query_scoring.sh         # Topics, scoring configs, top scores
 │   ├── query_subscriptions.sh   # Users and topic subscriptions
 │   ├── query_feedback.sh        # Feedback events
-│   ├── run_digest_v2.sh         # Full pipeline (--fetch-only for 6h cron)
-│   ├── daily_digest.sh          # Cron wrapper (2 PM digest)
+│   ├── run_digest_v2.sh         # Legacy full pipeline kept for comparison/debugging
+│   ├── daily_digest.sh          # Legacy 2 PM digest wrapper
 │   └── send_engagement_summary.sh
 │
 ├── CI
@@ -721,7 +742,7 @@ knowledge-os/
 │   └── tests/test_pipeline_integration.py # integration (marked, excluded from CI)
 │
 ├── Output
-│   ├── knos-digest/YYYY-MM-DD.md    # generated persona digest markdown (gitignored)
+│   ├── knos-digest/YYYY-MM-DD.md    # generated persona digest markdown, pushed for website publish
 │   └── archive/                     # generated raw story/digest archive
 │
 └── Docs
@@ -735,17 +756,20 @@ knowledge-os/
 ## Scheduling
 
 ```bash
-# Digest: 2 PM daily
-0 14 * * * /Users/vb/.openclaw/workspace/knowledge-os/scripts/daily_digest.sh
+# Generate and push the website-facing digest: 9 AM daily
+0 9 * * * /Users/vb/dev/projects/knowledge-os/scripts/run_catalog_ingest.sh
 
-# Fetch-only: every 6 hours (keeps DB fresh for weekend mode Interesting Reads)
-0 */6 * * * bash /Users/vb/.openclaw/workspace/knowledge-os/scripts/run_digest_v2.sh --fetch-only
+# Deliver VB daily from the existing digest: 2 PM daily
+0 14 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_vb_whatsapp_digest.sh
+
+# Deliver Kintu weekly from the existing digest: 2 PM Friday
+0 14 * * 5 /Users/vb/dev/projects/knowledge-os/scripts/weekly_kintu_whatsapp_digest.sh
 
 # Weekly summary: Monday 9 AM
-0 9 * * 1 /Users/vb/.openclaw/workspace/knowledge-os/venv/bin/python -m knowledge_os.weekly_summary
+0 9 * * 1 /Users/vb/dev/projects/knowledge-os/venv/bin/python -m knowledge_os.weekly_summary
 
 # Engagement summary: 9 AM daily
-0 9 * * * /Users/vb/.openclaw/workspace/knowledge-os/scripts/send_engagement_summary.sh
+0 9 * * * /Users/vb/dev/projects/knowledge-os/scripts/send_engagement_summary.sh
 ```
 
 ---
@@ -753,7 +777,7 @@ knowledge-os/
 ## Tech Stack
 
 - **Python 3.9+** with `venv/`
-- **Scala 3** with `sbt` for concurrent ingestion and digest selection/ranking
+- **Scala 3** with `sbt` for concurrent catalog ingestion
 - **OpenJDK** for the Scala toolchain
 - **sentence-transformers** (`all-MiniLM-L6-v2`) for semantic matching
 - **feedparser** for Substack RSS
@@ -777,9 +801,9 @@ knowledge-os/
 
 **2026-05-13:** Four-module architecture implementation slice
 - Added target SQLite schema for catalog, separate content, global topics, historical topic scores, subscriptions, digest membership, and feedback events
-- Added Scala project with concurrent ingestion and digest selection/ranking entry points
+- Added Scala project with concurrent catalog ingestion entry point
 - Added Python modules for schema initialization, topic scoring, subscription loading, and feedback event sync
-- Added unit and integration coverage for Scala selection/ranking and the four-module DB flow
+- Added unit and integration coverage for Scala ingestion and the four-module DB flow
 - Verified `scala -version`, `sbt test`, and Python non-integration tests
 
 **2026-04-30:** Empty digest fix + pipeline reliability

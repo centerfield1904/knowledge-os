@@ -5,8 +5,15 @@ Multi-source digest pipeline that fetches stories from HN and Substack RSS, matc
 ## Commands
 
 ```bash
-# Run full digest pipeline
-bash scripts/run_digest_v2.sh
+# Run production morning ingest/render and push the digest artifact
+bash scripts/run_catalog_ingest.sh
+
+# Run modular ingest/render locally without publishing
+bash scripts/run_modular_digest.sh --db knowledge_os.db --date "$(date +%F)" --overwrite
+
+# Send from the existing rendered digest artifact
+bash scripts/daily_vb_whatsapp_digest.sh
+bash scripts/weekly_kintu_whatsapp_digest.sh
 
 # Run tests
 venv/bin/python -m pytest tests/ -v
@@ -26,22 +33,29 @@ venv/bin/python -m streamlit run src/knowledge_os/dashboard.py
 - **Package manager:** Always use `uv` — never bare `pip` or `pip3`
   - Install: `uv pip install <pkg> --python venv/bin/python`
 - **Python:** Always use `venv/bin/python`, never system python
-- **Database:** SQLite at `hn_digest_v2.db` — never DROP or DELETE without WHERE
+- **Database:** SQLite at `knowledge_os.db` for the modular path; legacy v2 may still use `hn_digest_v2.db`. Never DROP or DELETE without WHERE.
 - **Tests:** pytest with `tmp_path` fixtures for DB isolation (not `:memory:` — connections don't persist across `_get_conn()` calls)
 
 ## Architecture
 
 ```
-fetch_stories.py ──┐
-                   ├→ process_digest.py → knos-digest/YYYY-MM-DD.md
-fetch_substack.py ─┘        ↓
-                  storage_sqlite.py (SQLite via storage_interface.py ABC)
-                             ↓
-                  engagement.py (opportunity detection, comment sync)
+knowledgeos.Ingest ─→ items/authors/item_content
+                          ↓
+topic_scoring.py ───→ item_topic_scores
+                          ↓
+personas.py ────────→ users/user_topic_subscriptions
+                          ↓
+persona_digest.py ──→ knos-digest/YYYY-MM-DD.md
+                          ↓
+whatsapp_delivery.py / baileys_send.mjs
 ```
 
-- `config.json` — single source for topics, user, sources, storage config, thresholds
-- `fetch_substack.py` — RSS fetcher for Substack feeds (config-driven, `feedparser` library)
+- `config/sources.example.json` — catalog ingestion source config
+- `config/topic_scoring.example.json` — ML topic scoring config
+- `personas/catalog.json` — canonical persona topic and selection config
+- `configs/users/*.json` — user persona subscriptions
+- `src/main/scala/knowledgeos/Ingest.scala` — Scala catalog ingestion; HN Firebase for current runs, HN Algolia for `--historical-hn`, RSS for Substack feeds
+- `persona_digest.py` — source-aware persona selection/rendering; HN cadence uses `fetched_at`, RSS/Substack uses `published_at`
 - `storage_interface.py` — abstract base; `storage_sqlite.py` implements it
 - `match_topics.py` — sentence-transformers semantic matching (heavy import, avoid in tests)
 - `dashboard.py` — local Streamlit app with PM/Engineering mode switcher (sidebar radio); PM view: Overview (metrics + match quality), Browse, Authors; Engg view: Pipeline Health, Stories, Config, Simulator; reads DB and config directly, never writes to DB (except Config tab)
@@ -56,13 +70,14 @@ I'm an engineer using this project to build product management skills. When PM m
 
 ## Code Conventions
 
-- Config loading: use `load_config()` from `process_digest.py` or inline `json.load(open("config.json"))`
-- DB access in production code: go through `storage_interface.get_storage()` factory
+- Config loading: modular code uses `config/sources.example.json`, `config/topic_scoring.example.json`, `personas/catalog.json`, and `configs/users/*.json`; legacy v2 uses `config.json`
+- DB access in modular code: prefer explicit SQLite connections and helpers in `schema.py`/`query_pipeline.py`; legacy code goes through `storage_interface.get_storage()`
 - DB access in `engagement.py`: uses raw `sqlite3` directly (separate schema)
 - Errors/warnings: `print(..., file=sys.stderr)` — stdout is reserved for pipeline output
-- Archive naming: `archive/YYYY-MM-DD_{stories,digest}.{json,txt}`, digest markdown in `knos-digest/YYYY-MM-DD.md`
-- `published_at` (ISO 8601 string) is mandatory on every story dict from every source; `insert_item` accepts it and re-surfaces the story if the value is newer than what's stored
-- `max_age_days` (config `settings.max_age_days`, default 7) — stories older than this are dropped in `_filter_by_age()` before topic matching; importable and testable
+- Digest artifact: `knos-digest/YYYY-MM-DD.md`; the morning wrapper commits and pushes the latest file when it changes
+- `published_at` stores the source-native publication/submission timestamp; `fetched_at` stores the logical catalog snapshot date; `source_api` records the concrete provider
+- Persona cadence is source-aware: HN uses `fetched_at`; RSS/Substack uses `published_at`
+- Legacy archive naming: `archive/YYYY-MM-DD_{stories,digest}.{json,txt}`
 - HN username `vb7132` is hardcoded in `engagement.py` and `engagement_summary.py`
 
 ## Testing
