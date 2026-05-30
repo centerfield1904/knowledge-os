@@ -1,5 +1,5 @@
 #!/bin/bash
-# Cron-safe daily Knowledge OS delivery for VB via Baileys.
+# Cron-safe weekly Knowledge OS delivery for Kintu via Baileys.
 set -euo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -17,4 +17,4 @@ if [ -n "${JAVA_HOME:-}" ]; then
 fi
 export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
 
-bash scripts/deliver_whatsapp_digest.sh --users vb --skip-digest --skip-site --send
+bash scripts/deliver_whatsapp_digest.sh --users kintu --skip-digest --skip-site --send

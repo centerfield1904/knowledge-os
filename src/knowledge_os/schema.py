@@ -34,6 +34,7 @@ def init_target_schema(db_path: str = "knowledge_os.db") -> None:
                 url TEXT NOT NULL UNIQUE,
                 title TEXT NOT NULL,
                 source TEXT NOT NULL,
+                source_api TEXT,
                 external_id TEXT,
                 author_id INTEGER,
                 author_name TEXT,
@@ -46,6 +47,16 @@ def init_target_schema(db_path: str = "knowledge_os.db") -> None:
                 metadata_json TEXT,
                 FOREIGN KEY (author_id) REFERENCES authors(author_id)
             )
+        """)
+        _ensure_column(c, "items", "source_api", "source_api TEXT")
+        c.execute("""
+            UPDATE items
+            SET source_api = CASE
+                WHEN source = 'hackernews' THEN 'hackernews_firebase'
+                WHEN source = 'substack' THEN 'rss'
+                ELSE source
+            END
+            WHERE source_api IS NULL OR source_api = ''
         """)
 
         c.execute("""
@@ -203,6 +214,7 @@ def init_target_schema(db_path: str = "knowledge_os.db") -> None:
 
         c.execute("CREATE INDEX IF NOT EXISTS idx_items_url ON items(url)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_items_source_external ON items(source, external_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_items_source_api ON items(source_api)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_item_content_item_type ON item_content(item_id, content_type)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_scores_topic_score ON item_topic_scores(topic_id, score)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_feedback_user_item_action ON feedback(user_id, item_id, action)")
@@ -213,6 +225,12 @@ def init_target_schema(db_path: str = "knowledge_os.db") -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def _ensure_column(c: sqlite3.Cursor, table: str, column: str, ddl: str) -> None:
+    columns = {row[1] for row in c.execute(f"PRAGMA table_info({table})")}
+    if column not in columns:
+        c.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 
 
 def main() -> None:

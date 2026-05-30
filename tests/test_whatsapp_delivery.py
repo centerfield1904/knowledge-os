@@ -50,7 +50,7 @@ def test_prepare_messages_builds_persona_website_message(tmp_path):
     assert not messages[0].skipped
 
 
-def test_prepare_messages_skips_zero_item_users(tmp_path):
+def test_prepare_messages_sends_zero_item_focus_message(tmp_path):
     users_dir = tmp_path / "users"
     users_dir.mkdir()
     _write_user(users_dir / "mikey.json", "mikey", ["ai_researcher"])
@@ -65,8 +65,28 @@ def test_prepare_messages_skips_zero_item_users(tmp_path):
     )
 
     assert messages[0].item_count == 0
+    assert not messages[0].skipped
+    assert "Nothing worth noticing surfaced" in messages[0].message
+    assert "stay focused" in messages[0].message
+
+
+def test_prepare_messages_can_skip_zero_item_users(tmp_path):
+    users_dir = tmp_path / "users"
+    users_dir.mkdir()
+    _write_user(users_dir / "mikey.json", "mikey", ["ai_researcher"])
+    digest_path = tmp_path / "digest.md"
+    digest_path.write_text("*Knowledge Digest*\n")
+
+    messages = prepare_messages(
+        user_ids=["mikey"],
+        recipients={"mikey": "+15557654321"},
+        digest_path=str(digest_path),
+        users_dir=str(users_dir),
+        skip_empty=True,
+    )
+
+    assert messages[0].item_count == 0
     assert messages[0].skipped
-    assert "No digest items matched mikey" in messages[0].message
 
 
 def test_load_recipients_and_parse_users(tmp_path):

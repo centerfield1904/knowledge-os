@@ -8,6 +8,7 @@ from knowledge_os.query_pipeline import (
     digest_items,
     digests,
     feedback,
+    fetched_items_filtered,
     subscriptions,
     top_scores,
     top_scores_filtered,
@@ -25,14 +26,15 @@ def _seed(db_path):
         conn.execute(
             """
             INSERT INTO items
-              (url, title, source, external_id, author_id, author_name, score, comment_count,
+              (url, title, source, source_api, external_id, author_id, author_name, score, comment_count,
                fetched_at, published_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 "https://example.com/a",
                 "Ranking agents well",
                 "hackernews",
+                "hackernews_firebase",
                 "100",
                 1,
                 "alice",
@@ -112,5 +114,24 @@ def test_catalog_and_score_queries_support_date_filters(tmp_path):
         assert catalog_items_filtered(conn, limit=5, until="2026-05-13") == []
         assert top_scores_filtered(conn, limit=5, since="2026-05-14")[0]["item_id"] == 1
         assert top_scores_filtered(conn, limit=5, until="2026-05-13") == []
+    finally:
+        conn.close()
+
+
+def test_fetched_items_query_supports_browse_filters(tmp_path):
+    db_path = tmp_path / "target.db"
+    _seed(db_path)
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        assert fetched_items_filtered(conn, limit=5, fetch_date="2026-05-14")[0]["item_id"] == 1
+        assert fetched_items_filtered(conn, limit=5, fetch_date="2026-05-14", min_score=100) == []
+        assert fetched_items_filtered(conn, limit=5, fetch_date="2026-05-14", topic="AI")[0]["topic"] == "AI"
+        assert fetched_items_filtered(conn, limit=5, fetch_date="2026-05-14", min_topic_score=0.8) == []
+        assert fetched_items_filtered(conn, limit=5, fetch_date="2026-05-14", title="agents")[0]["item_id"] == 1
+        assert fetched_items_filtered(conn, limit=5, fetch_date="2026-05-14", source="substack") == []
+        assert fetched_items_filtered(conn, limit=5, fetch_date="2026-05-14", source_api="hackernews_firebase")[0]["item_id"] == 1
+        assert fetched_items_filtered(conn, limit=5, fetch_date="2026-05-14", source_api="hackernews_algolia") == []
     finally:
         conn.close()

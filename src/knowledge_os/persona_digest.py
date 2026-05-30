@@ -2,10 +2,11 @@
 """Render and summarize the canonical persona-based digest."""
 import argparse
 import json
+import os
 import re
 import sqlite3
 import sys
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -37,10 +38,27 @@ WEEKDAYS = {
     "sun": 6,
     "sunday": 6,
 }
+LOG_LEVELS = {
+    "DEBUG": 10,
+    "INFO": 20,
+    "WARN": 30,
+    "ERROR": 40,
+}
 
 
-def _log(message: str) -> None:
-    print(f"[{datetime.now().isoformat(timespec='seconds')}] [persona_digest] {message}", file=sys.stderr)
+def _configured_log_level() -> int:
+    raw_level = os.environ.get("KNOS_PERSONA_DIGEST_LOG_LEVEL", "INFO").strip().upper()
+    return LOG_LEVELS.get(raw_level, LOG_LEVELS["INFO"])
+
+
+def _log(message: str, level: str = "INFO") -> None:
+    normalized = level.strip().upper()
+    if LOG_LEVELS.get(normalized, LOG_LEVELS["INFO"]) < _configured_log_level():
+        return
+    print(
+        f"[{datetime.now().isoformat(timespec='seconds')}] [persona_digest] [{normalized}] {message}",
+        file=sys.stderr,
+    )
 
 
 @dataclass(frozen=True)
@@ -65,6 +83,7 @@ class Candidate:
     author_name: str
     item_score: int
     published_at: str
+    fetched_at: str
 
 
 def _catalog_topics(catalog: Dict) -> Dict[str, PersonaTopic]:
@@ -127,21 +146,41 @@ def _cadence_window(selection: Dict, today: date) -> Optional[tuple[date, date]]
 
 
 def _passes_selection(candidate: Candidate, selection: Dict, today: date) -> bool:
-    if candidate.topic_score < float(selection.get("min_topic_score", 0.35)):
-        return False
+    return not _selection_drop_reasons(candidate, selection, today)
+
+
+def _selection_drop_reasons(candidate: Candidate, selection: Dict, today: date) -> List[str]:
+    reasons = []
+    min_topic_score = float(selection.get("min_topic_score", 0.35))
+    if candidate.topic_score < min_topic_score:
+        reasons.append("below_min_topic_score")
+        return reasons
     sources = selection.get("sources") or []
     if sources and candidate.source not in sources:
-        return False
+        reasons.append("source_not_allowed")
+        return reasons
     window = _cadence_window(selection, today)
     if window is None:
-        return False
-    published = _parse_dt(candidate.published_at)
-    if not published:
-        return False
+        reasons.append("send_day_mismatch")
+        return reasons
+    cadence_dt, missing_reason = _cadence_dt(candidate)
+    if not cadence_dt:
+        reasons.append(missing_reason)
+        return reasons
     start_date, end_date = window
-    if not start_date <= published.date() <= end_date:
-        return False
-    return True
+    if not start_date <= cadence_dt.date() <= end_date:
+        reasons.append("outside_cadence_window")
+    return reasons
+
+
+def _cadence_dt(candidate: Candidate) -> tuple[Optional[datetime], str]:
+    if candidate.source == "hackernews":
+        return _parse_dt(candidate.fetched_at), "missing_fetched_at"
+    return _parse_dt(candidate.published_at), "missing_published_at"
+
+
+def _cadence_field(candidate: Candidate) -> str:
+    return "fetched_at" if candidate.source == "hackernews" else "published_at"
 
 
 def _candidate_sort_key(candidate: Candidate) -> tuple:
@@ -154,6 +193,10 @@ def select_persona_items(db_path: str, catalog_path: str, today: Optional[date] 
     today = today or date.today()
     catalog = _load(catalog_path)
     topics = _catalog_topics(catalog)
+    _log(
+        f"Selecting persona digest items for date={today.isoformat()} "
+        f"db={db_path} catalog={catalog_path} catalog_topics={len(topics)}"
+    )
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
@@ -168,6 +211,7 @@ def select_persona_items(db_path: str, catalog_path: str, today: Optional[date] 
                 COALESCE(i.author_name, '') AS author_name,
                 COALESCE(i.score, 0) AS item_score,
                 i.published_at AS published_at,
+                i.fetched_at AS fetched_at,
                 t.name AS topic_name,
                 MAX(s.score) AS topic_score
             FROM item_topic_scores s
@@ -181,9 +225,18 @@ def select_persona_items(db_path: str, catalog_path: str, today: Optional[date] 
         conn.close()
 
     candidates: List[Candidate] = []
+    drop_reason_counts: Counter[str] = Counter()
+    passed_by_persona: Counter[str] = Counter()
+    unknown_topic_rows = 0
     for row in rows:
         topic = topics.get(row["topic_name"].strip().lower())
         if topic is None:
+            unknown_topic_rows += 1
+            _log(
+                f"Ignoring scored row for non-catalog topic={row['topic_name']!r} "
+                f"item_id={row['item_id']} title={row['title']!r}",
+                "DEBUG",
+            )
             continue
         candidate = Candidate(
             persona_id=topic.persona_id,
@@ -198,9 +251,31 @@ def select_persona_items(db_path: str, catalog_path: str, today: Optional[date] 
             author_name=row["author_name"],
             item_score=int(row["item_score"]),
             published_at=row["published_at"] or "",
+            fetched_at=row["fetched_at"] or "",
         )
-        if _passes_selection(candidate, topic.selection, today):
+        drop_reasons = _selection_drop_reasons(candidate, topic.selection, today)
+        if drop_reasons:
+            drop_reason_counts.update(drop_reasons)
+            _log(
+                "Dropped candidate "
+                f"item_id={candidate.item_id} persona={candidate.persona_id} topic={candidate.topic_name!r} "
+                f"topic_score={candidate.topic_score:.3f} source={candidate.source!r} "
+                f"cadence_field={_cadence_field(candidate)} published_at={candidate.published_at!r} "
+                f"fetched_at={candidate.fetched_at!r} reasons={','.join(drop_reasons)} "
+                f"title={candidate.title!r}",
+                "DEBUG",
+            )
+        else:
             candidates.append(candidate)
+            passed_by_persona[candidate.persona_id] += 1
+            _log(
+                "Accepted candidate "
+                f"item_id={candidate.item_id} persona={candidate.persona_id} topic={candidate.topic_name!r} "
+                f"topic_score={candidate.topic_score:.3f} source={candidate.source!r} "
+                f"cadence_field={_cadence_field(candidate)} published_at={candidate.published_at!r} "
+                f"fetched_at={candidate.fetched_at!r} title={candidate.title!r}",
+                "DEBUG",
+            )
 
     best_by_item: Dict[int, Candidate] = {}
     for candidate in sorted(candidates, key=lambda c: (-c.topic_score, c.persona_id, c.topic_name, c.title)):
@@ -216,6 +291,29 @@ def select_persona_items(db_path: str, catalog_path: str, today: Optional[date] 
     for persona_id, persona in catalog.get("personas", {}).items():
         max_items = int(persona_selection(persona).get("max_items", 8))
         selected.extend(sorted(by_persona.get(persona_id, []), key=_candidate_sort_key)[:max_items])
+    selected_by_persona = Counter(candidate.persona_id for candidate in selected)
+    _log(
+        "Persona selection summary: "
+        f"scored_rows={len(rows)} unknown_topic_rows={unknown_topic_rows} "
+        f"passed_candidates={len(candidates)} unique_items={len(best_by_item)} selected_items={len(selected)}"
+    )
+    if passed_by_persona:
+        _log(
+            "Passed candidates by persona: "
+            + ", ".join(f"{persona}={count}" for persona, count in sorted(passed_by_persona.items()))
+        )
+    if selected_by_persona:
+        _log(
+            "Selected items by persona: "
+            + ", ".join(f"{persona}={count}" for persona, count in sorted(selected_by_persona.items()))
+        )
+    else:
+        _log("Selected items by persona: none")
+    if drop_reason_counts:
+        _log(
+            "Candidate drop reasons: "
+            + ", ".join(f"{reason}={count}" for reason, count in sorted(drop_reason_counts.items()))
+        )
     return selected
 
 
@@ -342,7 +440,11 @@ def whatsapp_summary(
         "headlines": headlines,
     }
     if not selected:
-        summary["message"] = f"No digest items matched {user['identifier']}'s persona subscriptions today."
+        summary["message"] = (
+            "Nothing worth noticing surfaced in today's digest.\n\n"
+            "Use this as a quiet window: stay focused, protect your attention, "
+            "and spend the time on the work that matters."
+        )
         return summary
 
     topic_text = ", ".join(topics[:3])

@@ -60,7 +60,7 @@ def prepare_messages(
     digest_path: str,
     users_dir: str = "configs/users",
     base_url: Optional[str] = None,
-    skip_empty: bool = True,
+    skip_empty: bool = False,
 ) -> List[PreparedMessage]:
     """Build WhatsApp messages for users from one canonical persona digest."""
     digest = Path(digest_path)
@@ -150,7 +150,8 @@ def main() -> None:
     parser.add_argument("--send-command", default=os.environ.get("WHATSAPP_SEND_COMMAND", ""))
     parser.add_argument("--send", action="store_true", help="Actually call the configured sender command")
     parser.add_argument("--dry-run", action="store_true", help="Print messages without sending")
-    parser.add_argument("--include-empty", action="store_true", help="Send zero-item messages instead of skipping")
+    parser.add_argument("--include-empty", action="store_true", help="Deprecated; zero-item messages are sent by default")
+    parser.add_argument("--skip-empty", action="store_true", help="Skip zero-item messages")
     args = parser.parse_args()
 
     user_ids = parse_user_ids(args.users, args.repeated_users)
@@ -172,7 +173,7 @@ def main() -> None:
             digest_path=digest_path,
             users_dir=args.users_dir,
             base_url=args.base_url,
-            skip_empty=not args.include_empty,
+            skip_empty=args.skip_empty,
         )
         if args.send:
             for item in prepared:

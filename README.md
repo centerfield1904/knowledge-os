@@ -90,6 +90,9 @@ venv/bin/python -m knowledge_os.persona_digest render --db knowledge_os.db --cat
 # Run the modular flow end to end
 bash scripts/run_modular_digest.sh --db knowledge_os.db --date "$(date +%F)" --overwrite
 
+# Backfill a historical HN submission date through Algolia instead of today's Firebase top stories
+bash scripts/run_modular_digest.sh --db /tmp/knowledge_os.2026-02-12.db --date 2026-02-12 --historical-hn --overwrite
+
 # Print a WhatsApp summary with persona-filtered website link
 bash scripts/send_whatsapp_digest_prompt.sh --user kintu
 
@@ -103,6 +106,11 @@ bash scripts/query_catalog.sh
 bash scripts/query_scoring.sh
 bash scripts/query_subscriptions.sh --user vb
 bash scripts/query_feedback.sh --user vb
+
+# Browse items fetched today
+bash scripts/query_fetched_items.sh --limit 50
+bash scripts/query_fetched_items.sh --min-score 100 --topic "AI Research" --title agent
+bash scripts/query_fetched_items.sh --source-api hackernews_algolia --date 2026-02-12
 
 # Date filters for catalog/scoring queries
 bash scripts/query_catalog.sh --since 2026-05-14 --until 2026-05-14
@@ -161,7 +169,7 @@ bash scripts/run_modular_digest.sh \
 
 This performs catalog ingestion, persona materialization, topic scoring, and combined digest rendering.
 
-The `--date` is threaded into ingestion as `items.fetched_at` for audit/backfill runs and into rendering as the digest date. Persona selection uses `items.published_at`, not `fetched_at`, so re-ingesting an older story on a later day does not make it eligible for that later daily digest.
+The `--date` is threaded into ingestion as `items.fetched_at` for audit/backfill runs and into rendering as the digest date. Persona selection uses source-aware cadence timestamps: Hacker News uses `items.fetched_at`; Substack/RSS uses `items.published_at`.
 
 Persona cadence lives in `personas/catalog.json` under each persona's `selection` block:
 
@@ -177,7 +185,69 @@ Persona cadence lives in `personas/catalog.json` under each persona's `selection
 }
 ```
 
-`daily` selects only items published on the digest date. `weekly` selects the inclusive seven-day window ending on the digest date. `send_days` is optional; when present, that persona contributes only on those weekdays. `freshness_days` remains in the catalog for compatibility with the subscription table, but the canonical persona renderer uses `cadence` and `published_at`.
+`daily` selects the one-day cadence window ending on the digest date. `weekly` selects the inclusive seven-day window ending on the digest date. `send_days` is optional; when present, that persona contributes only on those weekdays. `freshness_days` remains in the catalog for compatibility with the subscription table, but the canonical persona renderer uses `cadence` and source-aware item timestamps.
+
+Cadence timestamp semantics are source-specific:
+
+- Hacker News uses `items.fetched_at` for daily and weekly cadence eligibility. Ingestion sets this from `--date`, so backfill/audit runs should pass the logical source snapshot date rather than relying on wall-clock run time.
+- Substack/RSS and other sources use `items.published_at`, because the feed entry publication timestamp is the source-native freshness signal.
+
+The official HN Firebase API exposes near-real-time top/new/best story lists and item timestamps. It does not expose a date-addressable historical front-page endpoint, so historical HN page replay requires our own captured snapshots or another archival data source.
+
+For historical HN backfills, pass `--historical-hn` with an explicit `--date`. This switches only the HN fetcher to Algolia `search_by_date` with a one-day `created_at_i` window and the configured minimum score; RSS/Substack fetching is unchanged.
+
+```bash
+bash scripts/run_modular_digest.sh \
+  --db /tmp/knowledge_os.2026-02-12.db \
+  --date 2026-02-12 \
+  --historical-hn \
+  --overwrite
+```
+
+Historical HN via Algolia approximates "stories submitted to HN on this date that currently satisfy the configured score filter." It is not an exact reconstruction of the HN front page or score/rank at that historical time.
+
+The item row records the fetch provider in `items.source_api`:
+
+- `hackernews_firebase` — normal current HN Firebase API ingest
+- `hackernews_algolia` — historical HN Algolia ingest
+- `rss` — RSS/Substack feed ingest
+
+### Debugging persona selection
+
+An empty user digest does not necessarily mean ingestion or scoring failed. The canonical digest is rendered first, then each user's configured personas filter that shared markdown. A user can have zero items when scored candidates were dropped by persona selection rules.
+
+`knowledge_os.persona_digest` logs selection summaries to stderr by default. The summary includes scored row count, unknown topic rows, passed candidates, selected items, selected items by persona, and candidate drop reason counts.
+
+Run a safe debug render to inspect the existing DB without changing the canonical `knos-digest/YYYY-MM-DD.md` file:
+
+```bash
+KNOS_PERSONA_DIGEST_LOG_LEVEL=DEBUG \
+venv/bin/python -m knowledge_os.persona_digest render \
+  --db knowledge_os.db \
+  --catalog personas/catalog.json \
+  --date "$(date +%F)" \
+  --output /tmp/knos-digest-debug.md \
+  --overwrite
+```
+
+Common drop reasons:
+
+- `below_min_topic_score` — topic score is below the persona's `selection.min_topic_score`
+- `source_not_allowed` — item source is not in the persona's `selection.sources`
+- `send_day_mismatch` — persona has `selection.send_days`, and the digest date is not one of them
+- `missing_fetched_at` — Hacker News item has no parseable fetch timestamp
+- `missing_published_at` — item has no parseable publication timestamp
+- `outside_cadence_window` — the source-aware cadence timestamp is outside the `daily` or `weekly` cadence window
+
+Use fetched-item queries to separate scorer behavior from selector behavior:
+
+```bash
+bash scripts/query_fetched_items.sh --date "$(date +%F)" --limit 50
+bash scripts/query_fetched_items.sh --date "$(date +%F)" --topic "AI/ML/LLMs" --min-topic-score 0.3
+bash scripts/query_fetched_items.sh --date "$(date +%F)" --topic "Data Science" --min-score 50 --title agent
+```
+
+If `query_fetched_items.sh` shows scored rows but the debug render reports `outside_cadence_window`, the scorer worked and the item was filtered by source-aware cadence eligibility. For Hacker News, inspect `fetched_at`; for Substack/RSS, inspect `published_at`.
 
 ### Website refresh
 
@@ -203,7 +273,9 @@ bash scripts/send_whatsapp_digest_prompt.sh --user kintu --date "$(date +%F)"
 bash scripts/send_whatsapp_digest_prompt.sh --user mikey --date "$(date +%F)"
 ```
 
-The prompt script prints message text only. The delivery wrapper runs the whole delivery plan: digest generation, website export/build, recipient lookup, zero-item user skipping, and optional sender invocation.
+The prompt script prints message text only. The delivery wrapper can run the full delivery plan for manual use, but the scheduled path uses it in send-only mode after the morning job has generated and pushed the digest. Zero-item users receive a short focus message by default.
+
+For scheduled delivery, prefer the split cron flow below: the 9 AM ingest job generates and pushes the digest artifact, and the 2 PM delivery job sends from that existing digest without regenerating or rebuilding anything.
 
 Phone numbers stay in a local file outside git:
 
@@ -228,7 +300,32 @@ The login command prints a QR code. Open WhatsApp on the sending phone, then use
 ~/.config/knowledge-os/baileys-auth
 ```
 
-Dry run the full delivery without sending:
+The Baileys session usually stays linked for weeks or months when used daily. You only need to log in again if WhatsApp unlinks the device, the auth directory is deleted/corrupted, or the health check prints a QR code:
+
+```bash
+node scripts/baileys_send.mjs --login-only --timeout-ms 30000
+```
+
+Expected healthy output:
+
+```json
+{"ok":true,"loginOnly":true,"sessionDir":"/Users/vb/.config/knowledge-os/baileys-auth"}
+```
+
+To confirm which WhatsApp account is linked without printing auth secrets:
+
+```bash
+node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync(process.env.HOME+'/.config/knowledge-os/baileys-auth/creds.json','utf8')); console.log(JSON.stringify({me:c.me, registered:c.registered, platform:c.platform}, null, 2));"
+```
+
+Do not delete the full auth directory unless you want to relink. If sends become flaky, first clear only stale Signal session files and then run the health check:
+
+```bash
+rm ~/.config/knowledge-os/baileys-auth/session-*.json
+node scripts/baileys_send.mjs --login-only --timeout-ms 30000
+```
+
+Dry run delivery without sending:
 
 ```bash
 export JAVA_HOME=/opt/homebrew/opt/openjdk
@@ -240,12 +337,14 @@ bash scripts/deliver_whatsapp_digest.sh \
   --dry-run
 ```
 
-Send through the linked Baileys WhatsApp Web session:
+Send through the linked Baileys WhatsApp Web session. For the scheduled 2 PM path, skip digest generation and site work:
 
 ```bash
 bash scripts/deliver_whatsapp_digest.sh \
   --date "$(date +%F)" \
   --recipients "$HOME/.config/knowledge-os/whatsapp-recipients.json" \
+  --skip-digest \
+  --skip-site \
   --send
 ```
 
@@ -266,20 +365,68 @@ PATH=/opt/homebrew/bin:/opt/homebrew/opt/openjdk/bin:/usr/local/bin:/usr/bin:/bi
 JAVA_HOME=/opt/homebrew/opt/openjdk
 
 0 9 * * * /Users/vb/dev/projects/knowledge-os/scripts/run_catalog_ingest.sh >> /Users/vb/Library/Logs/knowledge-os-ingest.log 2>&1
-0 14 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_vb_kintu_whatsapp_digest.sh >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
+0 14 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_vb_whatsapp_digest.sh >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
+0 14 * * 5 /Users/vb/dev/projects/knowledge-os/scripts/weekly_kintu_whatsapp_digest.sh >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
 ```
 
-In this split schedule, the 9 AM job calls `scripts/run_modular_digest.sh` to ingest catalog data and render `knos-digest/YYYY-MM-DD.md`. Website export/build runs in the remote GitHub Action after the rendered digest change is pushed. The 2 PM job sends WhatsApp messages from the existing rendered digest and does not regenerate the catalog or digest.
+In this split schedule, the 9 AM job calls `scripts/run_modular_digest.sh` to ingest catalog data and render `knos-digest/YYYY-MM-DD.md`. Website export/build runs in the remote GitHub Action after the rendered digest change is pushed. The 2 PM delivery jobs send WhatsApp messages from the existing rendered digest and do not regenerate the catalog or digest. VB receives a daily digest; Kintu receives the weekly UX/design digest on Friday, matching the `ux_design` persona cadence.
+
+The morning wrapper commits and pushes only the rendered `knos-digest/YYYY-MM-DD.md` artifact when it changes:
+
+```bash
+bash scripts/run_catalog_ingest.sh
+bash scripts/run_catalog_ingest.sh --date 2026-05-28
+```
+
+The afternoon wrapper sends from the existing artifact and skips generation/site work:
+
+```bash
+bash scripts/daily_vb_whatsapp_digest.sh
+bash scripts/weekly_kintu_whatsapp_digest.sh
+bash scripts/deliver_whatsapp_digest.sh --users vb --skip-digest --skip-site --send
+```
+
+If a user has zero matching digest items, delivery still sends a short focus message instead of skipping the user. Pass `--skip-empty` to `knowledge_os.whatsapp_delivery` only if you explicitly want zero-item users skipped.
 
 The cron host must have:
 
 - this repo checked out at `/Users/vb/dev/projects/knowledge-os`
-- the website repo checked out at `/Users/vb/dev/projects/bvaibhav-info`
 - Python dependencies installed in `venv/`
-- Node dependencies installed in the website repo
 - Node dependencies installed in this repo with `npm install`
-- OpenJDK and SBT available
+- OpenJDK and SBT available. If using Apple Silicon Homebrew, install Java with `/opt/homebrew/bin/brew install openjdk`; if using Intel Homebrew, `brew install openjdk` installs under `/usr/local/opt/openjdk`.
 - Baileys WhatsApp Web session linked in `~/.config/knowledge-os/baileys-auth`
+
+The website repo checkout and its Node dependencies are only needed if you manually run local website export/build. The scheduled publish path relies on the pushed digest artifact and the remote website GitHub Action.
+
+Cron does not catch up missed jobs after the Mac wakes. Keep the host awake for the scheduled windows:
+
+```bash
+sudo pmset repeat wakeorpoweron MTWRFSU 08:55:00
+```
+
+Check the wake schedule:
+
+```bash
+pmset -g sched
+```
+
+Clear the repeating schedule if needed:
+
+```bash
+sudo pmset repeat cancel
+```
+
+Practical setup:
+
+- Wake at `08:55`
+- Ingest at `09:00`
+- Delivery at `14:00`
+
+Also disable aggressive sleep while plugged in:
+
+```bash
+sudo pmset -c sleep 0
+```
 
 ---
 
@@ -406,7 +553,8 @@ _A quieter read for the weekend._
 ### Storage (`src/knowledge_os/storage_sqlite.py`)
 - SQLite via abstract `StorageInterface` (swappable to Postgres)
 - Tables: `users`, `topics`, `items`, `item_topic_scores`, `authors`, `digests`, `feedback`, `engagement_opportunities`, `user_comments`, `engagement_stats`
-- `items.published_at` (ISO 8601) tracks original publication date. The canonical persona renderer uses `published_at` for cadence windows and does not use `fetched_at` to make old stories reappear.
+- `items.published_at` (ISO 8601) tracks source-native publication/submission time. The canonical persona renderer uses source-aware cadence windows: Hacker News uses `fetched_at`; Substack/RSS uses `published_at`.
+- `items.source_api` records the concrete ingestion API/provider, currently `hackernews_firebase`, `hackernews_algolia`, or `rss`.
 
 ### Read Tracking (`src/knowledge_os/sync_reading_log.py`)
 - Parses checked `[x]` items from digest markdown files
@@ -416,11 +564,12 @@ _A quieter read for the weekend._
 
 ### Delivery
 - **`scripts/run_modular_digest.sh`** — canonical persona digest pipeline; passes `--date` into ingestion and rendering; writes `knos-digest/YYYY-MM-DD.md`
-- **`scripts/run_catalog_ingest.sh`** — cron-safe morning wrapper around `scripts/run_modular_digest.sh --overwrite`
+- **`scripts/run_modular_digest.sh --historical-hn`** — historical HN backfill mode; fetches HN submissions for `--date` through Algolia and marks rows with `items.source_api = 'hackernews_algolia'`
+- **`scripts/run_catalog_ingest.sh`** — cron-safe morning wrapper around `scripts/run_modular_digest.sh --overwrite`; commits and pushes the rendered digest artifact when it changes
 - **`scripts/send_whatsapp_digest_prompt.sh`** — prints a WhatsApp-ready summary plus persona-filtered website link for one configured user
-- **`scripts/deliver_whatsapp_digest.sh`** — runs digest generation, website refresh, recipient lookup, and dry-run or real WhatsApp delivery
+- **`scripts/deliver_whatsapp_digest.sh`** — delivery wrapper; can run full generation/site refresh manually, or send-only with `--skip-digest --skip-site`
 - **`scripts/baileys_send.mjs`** — local Baileys WhatsApp Web sender used by the delivery wrapper
-- **`src/knowledge_os/whatsapp_delivery.py`** — validates local recipient config, skips zero-item messages, and calls the configured sender command
+- **`src/knowledge_os/whatsapp_delivery.py`** — validates local recipient config, sends zero-item focus messages, and calls the configured sender command
 - **`src/knowledge_os/engagement_summary.py`** — engagement reflection report
 
 ### Dashboard (`src/knowledge_os/dashboard.py`)
@@ -609,7 +758,8 @@ knowledge-os/
 - **sentence-transformers** (`all-MiniLM-L6-v2`) for semantic matching
 - **feedparser** for Substack RSS
 - **SQLite 3** for storage
-- **HN Firebase API** for story fetching
+- **HN Firebase API** for current story fetching
+- **HN Algolia API** for explicit historical HN backfills
 - **Baileys** for local WhatsApp Web delivery
 - **pytest** for testing via `requirements-dev.txt` (`tmp_path` fixtures, `integration` marker)
 - **munit** for Scala tests
@@ -619,10 +769,11 @@ knowledge-os/
 ## Recent Updates
 
 **2026-05-27:** Persona cadence and date-aware ingestion
-- Added persona-level `selection.cadence` and optional `selection.send_days`; daily uses the digest date, weekly uses the inclusive seven-day `published_at` window.
-- Canonical persona selection now uses `items.published_at` only for cadence eligibility, so re-fetching an old URL does not make it recur in a daily digest.
+- Added persona-level `selection.cadence` and optional `selection.send_days`; daily uses the digest date, weekly uses the inclusive seven-day cadence window.
+- Canonical persona selection now uses source-aware cadence timestamps: Hacker News uses `items.fetched_at`; Substack/RSS uses `items.published_at`.
 - Scala ingestion accepts `--date YYYY-MM-DD` and stores that as `items.fetched_at` at UTC midnight for backfill/audit runs.
 - `scripts/run_modular_digest.sh` and `scripts/run_catalog_ingest.sh` pass `--date` into Scala ingestion.
+- Added `--historical-hn` for explicit HN backfills via Algolia `search_by_date`; item rows now record `items.source_api` for provider-aware filtering.
 
 **2026-05-13:** Four-module architecture implementation slice
 - Added target SQLite schema for catalog, separate content, global topics, historical topic scores, subscriptions, digest membership, and feedback events
@@ -647,7 +798,7 @@ knowledge-os/
 
 **2026-03-03:** published_at tracking, 52 Substack feeds, Browse tab, age filter
 - All stories now carry `published_at` (ISO 8601); HN from `time` field, Substack from `updated_parsed` or `published_parsed`
-- Legacy storage updates a re-fetched URL when the source reports a newer `published_at`; the canonical persona renderer now uses `published_at` cadence windows rather than fetched date
+- Legacy storage updates a re-fetched URL when the source reports a newer `published_at`; the canonical persona renderer now uses source-aware cadence timestamps
 - `max_age_days` config setting (default 7) filters stories before matching — prevents old Substack backlog from flooding the digest
 - 52 Substack feeds added from TSPC community CSV
 - Dashboard **Browse** tab: card-based reading view, filter by topic/source/date range, grouped by publication date

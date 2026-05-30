@@ -2,8 +2,9 @@
 
 ## Immediate (This Week)
 
-- [ ] **Add persona digest preview diagnostics** — The canonical persona renderer now selects directly from scored catalog rows. Add a dry-run query that explains every rejected candidate by persona threshold, source, `published_at` cadence window, send-day gating, and exclusive-assignment winner.
+- [ ] **Add persona digest preview diagnostics** — The canonical persona renderer now selects directly from scored catalog rows. Add a dry-run query that explains every rejected candidate by persona threshold, source, source-aware cadence window, send-day gating, and exclusive-assignment winner.
 - [ ] **Stabilize persona digest volume** — Audit persona `selection` defaults, source coverage, and scoring coverage so each subscribed persona has enough candidates before WhatsApp summaries link to the website.
+- [ ] **Add cross-day digest de-dupe at render time** — HN cadence now uses `items.fetched_at`, so a high-scoring HN story can rarely appear across multiple days if it remains in the fetched source set. Add a rendered/delivered item suppression check keyed by `item_id` or URL across recent digest artifacts, with a `--rerun`/debug escape hatch so intentional backfills remain possible.
 - [ ] **Make topic scoring local/offline safe** — The launch smoke logs showed repeated Hugging Face DNS retries before scoring completed. Add a model-cache preflight, explicit offline/local-model option, clearer failure message, and a short retry policy so daily runs do not hang on network/model resolution.
 - [ ] **Populate modular enrichment data before rendering** — The renderer can show author karma and top-comment blurbs, but the modular path does not reliably populate `authors.metadata_json` or `item_content` yet. Add a separate enrichment step that fills HN author karma, top comments, article summaries, and source annotations without changing ranking.
 - [ ] **Improve Scala RSS/Substack adapter quality** — Current Scala ingestion fetches RSS feeds, but it is still basic: source is always `substack`, feed identity lives only in metadata, HTML entities are not decoded, and per-feed frequency is not honored in the Scala path. Add feed/source tags, robust date parsing, HTML text normalization, and fetch metrics.
@@ -14,7 +15,7 @@
 - [x] **Add target schema and modular commands** — COMPLETE (2026-05-13: `knowledge_os.schema`, `topic_scoring`, `subscriptions`, `feedback_events`; Scala `knowledgeos.Ingest`)
 - [x] **Add Scala unit and integration tests** — COMPLETE (2026-05-13: URL dedupe, author upsert, subscription filtering, digest writes, delivered feedback, and full four-module DB flow)
 - [x] **Wire modular runner** — COMPLETE (2026-05-13; revised 2026-05-25: `scripts/run_modular_digest.sh` calls ingestion, persona materialization, scoring, and canonical persona rendering)
-- [x] **Add persona-level cadence selection** — COMPLETE (2026-05-27: persona `selection.cadence` supports daily and weekly windows using `items.published_at`; optional `send_days` gates weekly UX delivery; zero-item digests are allowed)
+- [x] **Add persona-level cadence selection** — COMPLETE (2026-05-27; revised 2026-05-29: persona `selection.cadence` supports daily and weekly source-aware windows; HN uses `items.fetched_at`, Substack/RSS uses `items.published_at`; optional `send_days` gates weekly UX delivery; zero-item digests are allowed)
 - [x] **Make Scala ingestion date-aware** — COMPLETE (2026-05-27: `knowledgeos.Ingest --date YYYY-MM-DD` stores date-derived `fetched_at`; modular/catalog runners pass the date through for backfills and auditability)
 - [x] **Persona-only website delivery** — COMPLETE (2026-05-25: removed per-user rendered artifacts; WhatsApp summaries now link to the persona-filtered website)
 - [x] **Persona-driven multi-user config** — COMPLETE (2026-05-14; revised 2026-05-25: users subscribe to personas; personas own topics and selection defaults)
@@ -120,6 +121,8 @@
 **2026-05-13** - Four-module architecture adopted: catalog, topic scoring, subscriptions/digests, and feedback are independent; Scala owns ingestion plus selection/ranking; Python owns ML scoring, config, rendering, and feedback parsing
 **2026-05-16** - Launch-readiness review: Kintu source coverage improved with design feeds; Mikey threshold tuned; remaining VB risks are side-effectful dry runs, offline scoring reliability, enrichment gaps, and candidate/filter observability
 **2026-05-27** - Persona cadence implemented in canonical renderer: daily/weekly windows use `items.published_at`, UX is weekly on Fridays, zero-item digests are valid, and Scala ingestion accepts `--date` for date-aware backfills
+**2026-05-29** - Source-aware persona cadence: Hacker News now uses `items.fetched_at` for daily/weekly cadence windows; Substack/RSS continues to use `items.published_at`. Official HN Firebase API exposes near-real-time top/new/best lists and item timestamps, not a date-addressable historical front-page endpoint, so `--date` remains the logical snapshot date for HN ingest/backfill runs.
+**2026-05-30** - Historical HN ingest: added `--historical-hn` to fetch one requested HN submission date through Algolia `search_by_date`; item rows record `items.source_api` (`hackernews_firebase`, `hackernews_algolia`, `rss`) for provider-aware filtering.
 
 ---
 

@@ -30,6 +30,7 @@ class IngestSuite extends munit.FunSuite:
           url TEXT NOT NULL UNIQUE,
           title TEXT NOT NULL,
           source TEXT NOT NULL,
+          source_api TEXT,
           external_id TEXT,
           author_id INTEGER,
           author_name TEXT,
@@ -53,6 +54,7 @@ class IngestSuite extends munit.FunSuite:
         title = "Old title",
         url = "https://example.com/story",
         source = "hackernews",
+        sourceApi = "hackernews_firebase",
         externalId = Some("1"),
         authorName = "alice",
         score = 10,
@@ -86,6 +88,7 @@ class IngestSuite extends munit.FunSuite:
         title = "Dated ingest",
         url = "https://example.com/dated",
         source = "hackernews",
+        sourceApi = "hackernews_firebase",
         externalId = Some("2"),
         authorName = "alice",
         score = 10,
@@ -150,6 +153,7 @@ class IngestSuite extends munit.FunSuite:
     val story = Ingest.hackerNewsStoryFromJson(123, json, minScore = 50).get
 
     assertEquals(story.title, "Useful story")
+    assertEquals(story.sourceApi, "hackernews_firebase")
     assertEquals(story.externalId, Some("123"))
     assertEquals(story.authorName, "alice")
     assertEquals(story.score, 100)
@@ -184,9 +188,44 @@ class IngestSuite extends munit.FunSuite:
     assertEquals(stories.head.title, "Designing useful onboarding")
     assertEquals(stories.head.url, "https://example.com/onboarding")
     assertEquals(stories.head.source, "substack")
+    assertEquals(stories.head.sourceApi, "rss")
     assertEquals(stories.head.authorName, "Design Feed")
     assertEquals(stories.head.publishedAt, Some("2026-05-15T09:00:00Z"))
     assertEquals(stories.head.itemText, Some("Onboarding should earn attention."))
+  }
+
+  test("algoliaStoryFromHit normalizes historical HN stories") {
+    val hit = ujson.Obj(
+      "objectID" -> "123",
+      "title" -> "Historical HN story",
+      "url" -> "https://example.com/historical",
+      "author" -> "alice",
+      "points" -> 120,
+      "num_comments" -> 12,
+      "story_text" -> "body",
+      "created_at_i" -> 1770000000
+    )
+
+    val story = Ingest.algoliaStoryFromHit(hit, minScore = 50).get
+
+    assertEquals(story.title, "Historical HN story")
+    assertEquals(story.source, "hackernews")
+    assertEquals(story.sourceApi, "hackernews_algolia")
+    assertEquals(story.externalId, Some("123"))
+    assertEquals(story.score, 120)
+    assertEquals(story.commentCount, 12)
+    assertEquals(story.publishedAt, Some("2026-02-02T02:40:00Z"))
+  }
+
+  test("algoliaStoryFromHit filters low score historical HN stories") {
+    val hit = ujson.Obj(
+      "objectID" -> "123",
+      "title" -> "Too quiet historically",
+      "points" -> 10,
+      "created_at_i" -> 1770000000
+    )
+
+    assertEquals(Ingest.algoliaStoryFromHit(hit, minScore = 50), None)
   }
 
   test("retry returns None after failures instead of throwing") {

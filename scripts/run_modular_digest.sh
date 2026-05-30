@@ -17,6 +17,7 @@ OUTPUT=""
 DATE="$(date +%F)"
 OVERWRITE=false
 SKIP_INGEST=false
+HISTORICAL_HN=false
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -29,6 +30,7 @@ while [ "$#" -gt 0 ]; do
         --date) DATE="$2"; shift 2 ;;
         --overwrite) OVERWRITE=true; shift ;;
         --skip-ingest) SKIP_INGEST=true; shift ;;
+        --historical-hn) HISTORICAL_HN=true; shift ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
@@ -50,7 +52,11 @@ if $SKIP_INGEST; then
     log_step "Skipping catalog ingestion"
 else
     log_step "Running catalog ingestion"
-    run_sbt "runMain knowledgeos.Ingest --db $DB --sources $SOURCES_CONFIG --date $DATE"
+    INGEST_ARGS="runMain knowledgeos.Ingest --db $DB --sources $SOURCES_CONFIG --date $DATE"
+    if $HISTORICAL_HN; then
+        INGEST_ARGS="$INGEST_ARGS --historical-hn"
+    fi
+    run_sbt "$INGEST_ARGS"
 fi
 
 log_step "Materializing persona catalog and user subscriptions"

@@ -3,6 +3,7 @@
 import argparse
 import json
 import sqlite3
+from datetime import date
 from typing import Iterable, Optional, Sequence
 
 
@@ -49,11 +50,12 @@ def catalog_summary(conn: sqlite3.Connection) -> list[dict]:
         """
         SELECT
             i.source,
+            COALESCE(i.source_api, '') AS source_api,
             COUNT(*) AS item_count,
             COUNT(DISTINCT i.author_id) AS author_count,
             MAX(i.fetched_at) AS latest_fetch
         FROM items i
-        GROUP BY i.source
+        GROUP BY i.source, i.source_api
         ORDER BY item_count DESC
         """
     ))
@@ -100,6 +102,7 @@ def catalog_items_filtered(
         SELECT
             i.item_id,
             i.source,
+            COALESCE(i.source_api, '') AS source_api,
             i.score,
             i.comment_count,
             i.author_name,
@@ -208,6 +211,82 @@ def top_scores_filtered(
         LIMIT ?
         """,
         (*params, limit),
+    ))
+
+
+def fetched_items_filtered(
+    conn: sqlite3.Connection,
+    limit: int,
+    fetch_date: str,
+    min_score: Optional[int] = None,
+    topic: Optional[str] = None,
+    min_topic_score: Optional[float] = None,
+    title: Optional[str] = None,
+    source: Optional[str] = None,
+    source_api: Optional[str] = None,
+) -> list[dict]:
+    clauses = ["date(i.fetched_at) = date(?)"]
+    params: list[object] = [fetch_date]
+    if min_score is not None:
+        clauses.append("i.score >= ?")
+        params.append(min_score)
+    if title:
+        clauses.append("LOWER(i.title) LIKE LOWER(?)")
+        params.append(f"%{title}%")
+    if source:
+        clauses.append("i.source = ?")
+        params.append(source)
+    if source_api:
+        clauses.append("i.source_api = ?")
+        params.append(source_api)
+
+    score_clauses = []
+    score_params: list[object] = []
+    if topic:
+        score_clauses.append("LOWER(t.name) LIKE LOWER(?)")
+        score_params.append(f"%{topic}%")
+    if min_topic_score is not None:
+        score_clauses.append("s.score >= ?")
+        score_params.append(min_topic_score)
+    if score_clauses:
+        clauses.append("s.item_id IS NOT NULL")
+    where = " AND ".join(clauses)
+    score_where = f"WHERE {' AND '.join(score_clauses)}" if score_clauses else ""
+
+    return rows_to_dicts(conn.execute(
+        f"""
+        WITH ranked_scores AS (
+            SELECT
+                s.item_id,
+                t.name AS topic,
+                s.score AS topic_score,
+                ROW_NUMBER() OVER (
+                    PARTITION BY s.item_id
+                    ORDER BY s.score DESC, t.name
+                ) AS topic_rank
+            FROM item_topic_scores s
+            JOIN topics t ON t.topic_id = s.topic_id
+            {score_where}
+        )
+        SELECT
+            i.item_id,
+            i.source,
+            COALESCE(i.source_api, '') AS source_api,
+            i.score,
+            ROUND(s.topic_score, 3) AS topic_score,
+            s.topic,
+            i.author_name,
+            substr(i.title, 1, 100) AS title,
+            i.published_at,
+            i.fetched_at,
+            i.url
+        FROM items i
+        LEFT JOIN ranked_scores s ON s.item_id = i.item_id AND s.topic_rank = 1
+        WHERE {where}
+        ORDER BY i.score DESC, s.topic_score DESC, datetime(i.published_at) DESC
+        LIMIT ?
+        """,
+        (*score_params, *params, limit),
     ))
 
 
@@ -366,6 +445,16 @@ def main() -> None:
     p.add_argument("--until", help="Include scores for items on or before YYYY-MM-DD")
     p.add_argument("--limit", type=int, default=20)
 
+    p = sub.add_parser("fetched-items")
+    p.add_argument("--date", default=date.today().isoformat(), help="Include items fetched on YYYY-MM-DD, defaults to today")
+    p.add_argument("--min-score", type=int, help="Minimum item/source score")
+    p.add_argument("--topic", help="Case-insensitive topic substring")
+    p.add_argument("--min-topic-score", type=float)
+    p.add_argument("--title", help="Case-insensitive title substring")
+    p.add_argument("--source")
+    p.add_argument("--source-api")
+    p.add_argument("--limit", type=int, default=50)
+
     sub.add_parser("users")
 
     p = sub.add_parser("subscriptions")
@@ -408,6 +497,18 @@ def main() -> None:
                 topic=args.topic,
                 since=args.since,
                 until=args.until,
+            )
+        elif args.command == "fetched-items":
+            result = fetched_items_filtered(
+                conn,
+                args.limit,
+                fetch_date=args.date,
+                min_score=args.min_score,
+                topic=args.topic,
+                min_topic_score=args.min_topic_score,
+                title=args.title,
+                source=args.source,
+                source_api=args.source_api,
             )
         elif args.command == "users":
             result = users(conn)

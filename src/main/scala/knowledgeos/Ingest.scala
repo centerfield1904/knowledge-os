@@ -1,9 +1,12 @@
 package knowledgeos
 
 import java.sql.Connection
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.time.{Instant, LocalDate, ZoneOffset}
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.concurrent.duration.Duration
+import scala.util.Try
 import scala.util.control.NonFatal
 import scala.xml.{Node, XML}
 
@@ -16,6 +19,7 @@ object Ingest:
       title: String,
       url: String,
       source: String,
+      sourceApi: String,
       externalId: Option[String],
       authorName: String,
       score: Int,
@@ -46,10 +50,14 @@ object Ingest:
     val args = Args.parse(raw)
     val db = args.getOrElse("db", "knowledge_os.db")
     val configPath = Args.required(args, "sources")
+    val ingestDate = args.get("date").map(value => LocalDate.parse(value.trim))
+    val historicalHn = args.get("historical-hn").exists(_.toBoolean)
+    if historicalHn && ingestDate.isEmpty then
+      throw new IllegalArgumentException("--historical-hn requires --date YYYY-MM-DD")
     val fetchedAt = ingestFetchedAt(args.get("date"))
     log(s"Loading source config from $configPath")
     val config = ujson.read(os.read(os.Path(configPath, os.pwd)))
-    val stories = fetchConfiguredSources(config)
+    val stories = fetchConfiguredSources(config, historicalHnDate = if historicalHn then ingestDate else None)
     log(s"Fetched ${stories.size} catalog item(s); writing to $db")
     Db.withConnection(db) { conn =>
       conn.setAutoCommit(false)
@@ -72,7 +80,7 @@ object Ingest:
         LocalDate.parse(value.trim).atStartOfDay(ZoneOffset.UTC).toInstant.toString
       case _ => Instant.now().toString
 
-  def fetchConfiguredSources(config: ujson.Value): Vector[Story] =
+  def fetchConfiguredSources(config: ujson.Value, historicalHnDate: Option[LocalDate] = None): Vector[Story] =
     given ExecutionContext = ExecutionContext.global
     val sources = config("sources")
     val futures = Vector.newBuilder[Future[Vector[Story]]]
@@ -92,7 +100,11 @@ object Ingest:
             s"concurrency=${fetchConfig.concurrency}, throttleMs=${fetchConfig.throttleMs}, " +
             s"timeoutMs=${fetchConfig.requestTimeoutMs}, retries=${fetchConfig.retries}"
         )
-        futures += Future(fetchHackerNews(fetchConfig))
+        futures += Future {
+          historicalHnDate match
+            case Some(date) => fetchHistoricalHackerNews(date, fetchConfig)
+            case None => fetchHackerNews(fetchConfig)
+        }
     }
 
     sources.obj.get("substack").foreach { substack =>
@@ -152,6 +164,7 @@ object Ingest:
         url TEXT NOT NULL UNIQUE,
         title TEXT NOT NULL,
         source TEXT NOT NULL,
+        source_api TEXT,
         external_id TEXT,
         author_id INTEGER,
         author_name TEXT,
@@ -184,7 +197,26 @@ object Ingest:
     )
     Db.execute(conn, "CREATE INDEX IF NOT EXISTS idx_items_url ON items(url)")
     Db.execute(conn, "CREATE INDEX IF NOT EXISTS idx_items_source_external ON items(source, external_id)")
+    ensureColumn(conn, "items", "source_api", "source_api TEXT")
+    Db.execute(
+      conn,
+      """
+      UPDATE items
+      SET source_api = CASE
+        WHEN source = 'hackernews' THEN 'hackernews_firebase'
+        WHEN source = 'substack' THEN 'rss'
+        ELSE source
+      END
+      WHERE source_api IS NULL OR source_api = ''
+      """
+    )
+    Db.execute(conn, "CREATE INDEX IF NOT EXISTS idx_items_source_api ON items(source_api)")
     Db.execute(conn, "CREATE INDEX IF NOT EXISTS idx_item_content_item_type ON item_content(item_id, content_type)")
+
+  private def ensureColumn(conn: Connection, table: String, column: String, ddl: String): Unit =
+    val columns = Db.query(conn, s"PRAGMA table_info($table)")(_.getString("name")).toSet
+    if !columns.contains(column) then
+      Db.execute(conn, s"ALTER TABLE $table ADD COLUMN $ddl")
 
   def fetchHackerNews(minScore: Int, maxItems: Int): Vector[Story] =
     fetchHackerNews(
@@ -224,6 +256,101 @@ object Ingest:
     log(s"Hacker News fetch produced ${result.size} item(s) after filtering")
     result
 
+  def fetchHistoricalHackerNews(date: LocalDate, config: HackerNewsFetchConfig): Vector[Story] =
+    val start = date.atStartOfDay(ZoneOffset.UTC).toEpochSecond
+    val end = date.plusDays(1).atStartOfDay(ZoneOffset.UTC).toEpochSecond
+    val hitsPerPage = math.min(100, math.max(1, config.maxItems))
+    val numericFilters = s"created_at_i>=$start,created_at_i<$end,points>=${config.minScore}"
+    log(
+      s"Fetching historical Hacker News stories from Algolia: date=$date, " +
+        s"minScore=${config.minScore}, maxItems=${config.maxItems}"
+    )
+
+    val stories = Vector.newBuilder[Story]
+    var storyCount = 0
+    var page = 0
+    var nbPages = 1
+    while page < nbPages && storyCount < config.maxItems do
+      val url = algoliaSearchUrl(
+        "tags" -> "story",
+        "numericFilters" -> numericFilters,
+        "hitsPerPage" -> hitsPerPage.toString,
+        "page" -> page.toString,
+      )
+      val body = retry(config.retries) {
+        requests
+          .get(url, readTimeout = config.requestTimeoutMs, connectTimeout = config.requestTimeoutMs)
+          .text()
+      }.getOrElse("")
+      if body.nonEmpty then
+        val json = ujson.read(body)
+        nbPages = json.obj.get("nbPages").flatMap(value => Try(value.num.toInt).toOption).getOrElse(page + 1)
+        val hits = json.obj.get("hits").map(_.arr.toVector).getOrElse(Vector.empty)
+        val parsed = hits.flatMap(hit => algoliaStoryFromHit(hit, config.minScore))
+        log(s"Algolia HN page $page fetched ${parsed.size}/${hits.size} matching story item(s)")
+        parsed.foreach { story =>
+          if storyCount < config.maxItems then
+            stories += story
+            storyCount += 1
+        }
+      page += 1
+      if config.throttleMs > 0 && page < nbPages then Thread.sleep(config.throttleMs.toLong)
+
+    val result = stories.result().sortBy(story => (-story.score, story.publishedAt.getOrElse(""), story.title)).take(config.maxItems)
+    log(s"Historical Hacker News Algolia fetch produced ${result.size} item(s)")
+    result
+
+  private def algoliaSearchUrl(params: (String, String)*): String =
+    val query = params
+      .map { case (key, value) =>
+        val encodedKey = URLEncoder.encode(key, StandardCharsets.UTF_8.name())
+        val encodedValue = URLEncoder.encode(value, StandardCharsets.UTF_8.name())
+        s"$encodedKey=$encodedValue"
+      }
+      .mkString("&")
+    s"https://hn.algolia.com/api/v1/search_by_date?$query"
+
+  def algoliaStoryFromHit(hit: ujson.Value, minScore: Int): Option[Story] =
+    val objectId = stringField(hit, "objectID")
+    val title = stringField(hit, "title").orElse(stringField(hit, "story_title")).getOrElse("")
+    val score = intField(hit, "points").getOrElse(0)
+    if objectId.isEmpty || title.trim.isEmpty || score < minScore then None
+    else
+      val id = objectId.get
+      val createdAt = intField(hit, "created_at_i")
+        .map(ts => Instant.ofEpochSecond(ts.toLong).toString)
+        .orElse(stringField(hit, "created_at"))
+      Some(
+        Story(
+          title = title,
+          url = stringField(hit, "url")
+            .orElse(stringField(hit, "story_url"))
+            .getOrElse(s"https://news.ycombinator.com/item?id=$id"),
+          source = "hackernews",
+          sourceApi = "hackernews_algolia",
+          externalId = Some(id),
+          authorName = stringField(hit, "author").getOrElse("unknown"),
+          score = score,
+          commentCount = intField(hit, "num_comments").getOrElse(0),
+          itemText = stringField(hit, "story_text"),
+          publishedAt = createdAt,
+          metadataJson = ujson.Obj(
+            "source_api" -> "hackernews_algolia",
+            "provider" -> "algolia",
+            "raw" -> hit,
+          ).render()
+        )
+      )
+
+  private def stringField(value: ujson.Value, key: String): Option[String] =
+    value.obj.get(key).flatMap {
+      case ujson.Str(raw) if raw.trim.nonEmpty => Some(raw.trim)
+      case _ => None
+    }
+
+  private def intField(value: ujson.Value, key: String): Option[Int] =
+    value.obj.get(key).flatMap(raw => Try(raw.num.toInt).toOption)
+
   def fetchHackerNewsItem(id: Long, config: HackerNewsFetchConfig): Option[Story] =
     retry(config.retries) {
       val body = requests
@@ -246,6 +373,7 @@ object Ingest:
           title = json.obj.get("title").map(_.str).getOrElse(""),
           url = json.obj.get("url").map(_.str).getOrElse(s"https://news.ycombinator.com/item?id=$id"),
           source = "hackernews",
+          sourceApi = "hackernews_firebase",
           externalId = Some(id.toString),
           authorName = json.obj.get("by").map(_.str).getOrElse("unknown"),
           score = json.obj.get("score").map(_.num.toInt).getOrElse(0),
@@ -316,6 +444,7 @@ object Ingest:
             title = normalizeWhitespace(title),
             url = url,
             source = "substack",
+            sourceApi = "rss",
             externalId = Some(url),
             authorName = normalizeWhitespace(author),
             score = 0,
@@ -382,11 +511,12 @@ object Ingest:
       """
       INSERT INTO items
         (url, title, source, external_id, author_id, author_name, score, comment_count,
-         item_text, fetched_at, published_at, updated_at, metadata_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+         item_text, fetched_at, published_at, source_api, updated_at, metadata_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
       ON CONFLICT(url) DO UPDATE SET
         title = excluded.title,
         source = excluded.source,
+        source_api = excluded.source_api,
         external_id = COALESCE(excluded.external_id, items.external_id),
         author_id = excluded.author_id,
         author_name = excluded.author_name,
@@ -410,6 +540,7 @@ object Ingest:
         story.itemText.orNull,
         fetchedAt,
         story.publishedAt.orNull,
+        story.sourceApi,
         story.metadataJson
       )
     )

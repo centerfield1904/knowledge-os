@@ -73,6 +73,48 @@ def test_historical_scores_are_keyed_by_scoring_config(tmp_path):
         conn.close()
 
 
+def test_items_schema_tracks_source_api_and_backfills_existing_rows(tmp_path):
+    db_path = str(tmp_path / "target.db")
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE items (
+                item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                source TEXT NOT NULL,
+                external_id TEXT,
+                author_id INTEGER,
+                author_name TEXT,
+                score INTEGER DEFAULT 0,
+                comment_count INTEGER DEFAULT 0,
+                item_text TEXT,
+                fetched_at TEXT NOT NULL,
+                published_at TEXT,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                metadata_json TEXT
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO items (url, title, source, fetched_at) VALUES (?, ?, ?, ?)",
+            ("https://example.com/1", "Story", "hackernews", "2026-01-01T00:00:00"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    init_target_schema(db_path)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute("SELECT source_api FROM items WHERE item_id = 1").fetchone()
+        assert row[0] == "hackernews_firebase"
+    finally:
+        conn.close()
+
+
 def test_feedback_event_is_user_per_item(tmp_path):
     db_path = str(tmp_path / "target.db")
     init_target_schema(db_path)
