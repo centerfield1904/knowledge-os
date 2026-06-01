@@ -19,6 +19,8 @@ from .personas import _load, persona_selection, validate_catalog
 BASE_URL = "https://www.bvaibhav.info/knos-digest"
 PERSONA_MARKER_RE = re.compile(r"^<!--\s*knos-persona:\s*([^|]+?)\s*\|\s*(.+?)\s*-->$")
 CHECKBOX_RE = re.compile(r"^- \[[ Xx]\]\s+(.+)$")
+SOURCE_ICON_PREFIXES = ("📰 ",)
+UNSCORED_TEASER_RANK = 100
 WEEKDAYS = {
     "mon": 0,
     "monday": 0,
@@ -400,22 +402,37 @@ def parse_persona_markdown(path: str) -> List[Dict]:
             continue
         checkbox = CHECKBOX_RE.match(line)
         if checkbox and current_persona_id:
-            title = checkbox.group(1).replace("📰 ", "", 1)
+            raw_title = checkbox.group(1)
+            title = raw_title
+            for prefix in SOURCE_ICON_PREFIXES:
+                title = title.replace(prefix, "", 1)
             current_story = {
                 "persona_id": current_persona_id,
                 "persona_name": current_persona_name,
                 "topic": current_topic,
                 "title": title,
                 "points": 0,
+                "has_points": False,
+                "source": "",
             }
             stories.append(current_story)
             continue
         # The metadata line after a story carries HN points like "↑343".
         if current_story is not None:
+            source_match = re.search(r"(?:^|\|\s*)source:\s*([^|]+)", line)
+            if source_match:
+                current_story["source"] = source_match.group(1).strip()
             points_match = re.search(r"↑(\d+)", line)
             if points_match:
                 current_story["points"] = int(points_match.group(1))
+                current_story["has_points"] = True
     return stories
+
+
+def _teaser_rank(story: Dict) -> int:
+    if story.get("has_points"):
+        return int(story.get("points", 0))
+    return UNSCORED_TEASER_RANK
 
 
 def persona_url(
@@ -447,8 +464,9 @@ def whatsapp_summary(
         if story["topic"] and story["topic"] not in topics:
             topics.append(story["topic"])
     # Lead the teaser with the strongest items (by HN points), not file order.
+    # Non-HN/newsletter items do not carry points; keep them above very low-signal HN.
     # Titles are already emoji-stripped in parse_persona_markdown.
-    ranked = sorted(selected, key=lambda story: story.get("points", 0), reverse=True)
+    ranked = sorted(selected, key=_teaser_rank, reverse=True)
     headlines = [story["title"] for story in ranked[:headline_limit]]
     effective_base_url = base_url or user_config.get("delivery", {}).get("base_url") or BASE_URL
     # Link to the specific digest the message describes so re-opening an old message
@@ -474,13 +492,15 @@ def whatsapp_summary(
     count = len(selected)
     shown = len(headlines)
     if count == 1:
-        opener = "Today's read — 1 picked:"
-    elif count > shown:
-        opener = f"Today's reads — {count} picked, top {shown}:"
+        opener = "Made you a digest — one worth a look:"
     else:
-        opener = f"Today's reads — {count} picked:"
+        opener = "Made you a digest — a few worth a look:"
     headline_text = "\n".join(f"- {headline}" for headline in headlines)
-    summary["message"] = f"{opener}\n\n{headline_text}\n\n{url}"
+    if count > shown:
+        footer = f"Full set ({count}): {url}"
+    else:
+        footer = f"Read it here: {url}"
+    summary["message"] = f"{opener}\n\n{headline_text}\n\n{footer}"
     return summary
 
 

@@ -56,6 +56,13 @@ def _write_custom_catalog(path, personas):
     path.write_text(json.dumps({"personas": personas}))
 
 
+def _write_user(path, user_id, personas):
+    path.write_text(json.dumps({
+        "user": {"identifier": user_id, "personas": personas},
+        "delivery": {"base_url": "https://www.bvaibhav.info/knos-digest"},
+    }))
+
+
 def _seed_scores(db_path):
     init_target_schema(str(db_path))
     conn = sqlite3.connect(db_path)
