@@ -45,7 +45,7 @@ def test_prepare_messages_builds_persona_website_message(tmp_path):
     assert messages[0].user_id == "kintu"
     assert messages[0].phone == "+15551234567"
     assert messages[0].item_count == 1
-    assert messages[0].website_url == "https://www.bvaibhav.info/knos-digest?u=kintu"
+    assert messages[0].website_url == "https://www.bvaibhav.info/knos-digest?p=ux"
     assert "Pure design story" in messages[0].message
     assert not messages[0].skipped
 
@@ -78,7 +78,7 @@ def test_prepare_messages_pins_dated_digest_link(tmp_path):
     )
 
     assert messages[0].website_url == (
-        "https://www.bvaibhav.info/knos-digest?u=kintu&d=2026-05-29"
+        "https://www.bvaibhav.info/knos-digest?p=ux&d=2026-05-29"
     )
     assert "d=2026-05-29" in messages[0].message
 

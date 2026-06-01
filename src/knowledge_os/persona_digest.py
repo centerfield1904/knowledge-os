@@ -17,6 +17,23 @@ from .personas import _load, persona_selection, validate_catalog
 
 
 BASE_URL = "https://www.bvaibhav.info/knos-digest"
+# Compact codes for share links: ?p=ai,llm instead of ?personas=ai_researcher,...
+# The link carries personas directly (no user lookup, no names on the public site).
+# Keep in sync with PERSONA_CODE_TO_ID in bvaibhav-info knos-digest/page.tsx.
+PERSONA_CODES = {
+    "software_eng": "se",
+    "data_eng": "de",
+    "data_scientist": "ds",
+    "ai_researcher": "ai",
+    "llm_researcher": "llm",
+    "pm": "pm",
+    "ux_design": "ux",
+    "applied_math": "am",
+    "swe_infra": "infra",
+    "startup_founder": "sf",
+    "philosopher": "phil",
+    "parenting_education": "pe",
+}
 PERSONA_MARKER_RE = re.compile(r"^<!--\s*knos-persona:\s*([^|]+?)\s*\|\s*(.+?)\s*-->$")
 CHECKBOX_RE = re.compile(r"^- \[[ Xx]\]\s+(.+)$")
 SOURCE_ICON_PREFIXES = ("📰 ",)
@@ -450,20 +467,24 @@ def persona_url(
 
 
 def short_digest_url(
-    user_id: str,
+    persona_ids: Iterable[str],
     base_url: str = BASE_URL,
     digest_date: Optional[str] = None,
 ) -> str:
-    """Build the compact, shareable link the WhatsApp message uses.
+    """Build the compact, self-contained share link the WhatsApp message uses.
 
-    The page resolves `u=<user>` to that reader's personas, so messages avoid the
-    long `personas=a,b,c` tail. `d=<date>` pins the digest the message describes.
-    The page still accepts the long `personas=`/`date=` form for in-page navigation.
+    Carries personas directly as abbreviated codes — `?p=ai,llm&d=<date>` — so the
+    link needs no user lookup on the site and leaks no names. `d=<date>` pins the
+    digest the message describes. Personas without a known code fall back to their
+    full id, and the page still accepts the long `personas=`/`date=` form.
     """
-    params = [f"u={quote(user_id, safe='')}"]
+    codes = [PERSONA_CODES.get(pid, pid) for pid in persona_ids]
+    params = []
+    if codes:
+        params.append(f"p={quote(','.join(codes), safe=',')}")
     if digest_date:
         params.append(f"d={quote(digest_date, safe='')}")
-    return f"{base_url}?{'&'.join(params)}"
+    return f"{base_url}?{'&'.join(params)}" if params else base_url
 
 
 def whatsapp_summary(
@@ -491,13 +512,9 @@ def whatsapp_summary(
     # a real YYYY-MM-DD (the canonical artifact name); otherwise fall back to "latest".
     stem = Path(digest_path).stem
     digest_date = stem if re.fullmatch(r"\d{4}-\d{2}-\d{2}", stem) else None
-    # Prefer the compact ?u=<user>&d=<date> link; fall back to the explicit persona
-    # link only if the config has no identifier to resolve on the page.
-    identifier = user.get("identifier")
-    if identifier:
-        url = short_digest_url(identifier, effective_base_url, digest_date=digest_date)
-    else:
-        url = persona_url(personas, effective_base_url, digest_date=digest_date)
+    # Compact, self-contained link: ?p=<codes>&d=<date>. Falls back to base URL if the
+    # user somehow has no personas.
+    url = short_digest_url(personas, effective_base_url, digest_date=digest_date)
     summary = {
         "digest_path": digest_path,
         "website_url": url,

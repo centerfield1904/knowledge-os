@@ -5,10 +5,12 @@ from datetime import date
 import pytest
 
 from knowledge_os.persona_digest import (
+    PERSONA_CODES,
     parse_persona_markdown,
     render_persona_digest_file,
     render_persona_digest_text,
     select_persona_items,
+    short_digest_url,
     whatsapp_summary,
 )
 from knowledge_os.schema import init_target_schema
@@ -477,8 +479,8 @@ def test_whatsapp_summary_uses_user_persona_url(tmp_path):
 
     summary = whatsapp_summary(str(user_path), str(digest_path))
 
-    # Compact share link resolves the reader from `u=` rather than spelling out personas.
-    assert summary["website_url"] == "https://www.bvaibhav.info/knos-digest?u=kintu"
+    # Compact share link carries personas as codes (ux_design -> ux), not the full ids.
+    assert summary["website_url"] == "https://www.bvaibhav.info/knos-digest?p=ux"
     assert summary["item_count"] == 1
     assert "Pure design story" in summary["message"]
 
@@ -522,3 +524,23 @@ def test_whatsapp_summary_ranks_teasers_by_points_and_strips_emoji(tmp_path):
     # Four items, three shown — opener reflects that the teaser is a top-N slice.
     assert summary["message"].startswith("Today's reads — 4 picked, top 3:")
     assert summary["website_url"] in summary["message"]
+
+
+def test_short_digest_url_encodes_persona_codes():
+    # Known personas collapse to their short codes; date pins via d=.
+    url = short_digest_url(
+        ["ai_researcher", "llm_researcher"],
+        digest_date="2026-06-01",
+    )
+    assert url == "https://www.bvaibhav.info/knos-digest?p=ai,llm&d=2026-06-01"
+
+
+def test_short_digest_url_passes_unknown_persona_through():
+    # An unmapped persona id is carried verbatim so a new persona never breaks a link.
+    url = short_digest_url(["ai_researcher", "brand_new_persona"])
+    assert url == "https://www.bvaibhav.info/knos-digest?p=ai,brand_new_persona"
+
+
+def test_persona_codes_are_unique():
+    # Codes must round-trip unambiguously to ids on the page side.
+    assert len(set(PERSONA_CODES.values())) == len(PERSONA_CODES)
