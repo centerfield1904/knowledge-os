@@ -449,6 +449,23 @@ def persona_url(
     return f"{base_url}?{'&'.join(params)}" if params else base_url
 
 
+def short_digest_url(
+    user_id: str,
+    base_url: str = BASE_URL,
+    digest_date: Optional[str] = None,
+) -> str:
+    """Build the compact, shareable link the WhatsApp message uses.
+
+    The page resolves `u=<user>` to that reader's personas, so messages avoid the
+    long `personas=a,b,c` tail. `d=<date>` pins the digest the message describes.
+    The page still accepts the long `personas=`/`date=` form for in-page navigation.
+    """
+    params = [f"u={quote(user_id, safe='')}"]
+    if digest_date:
+        params.append(f"d={quote(digest_date, safe='')}")
+    return f"{base_url}?{'&'.join(params)}"
+
+
 def whatsapp_summary(
     user_config_path: str,
     digest_path: str,
@@ -474,7 +491,13 @@ def whatsapp_summary(
     # a real YYYY-MM-DD (the canonical artifact name); otherwise fall back to "latest".
     stem = Path(digest_path).stem
     digest_date = stem if re.fullmatch(r"\d{4}-\d{2}-\d{2}", stem) else None
-    url = persona_url(personas, effective_base_url, digest_date=digest_date)
+    # Prefer the compact ?u=<user>&d=<date> link; fall back to the explicit persona
+    # link only if the config has no identifier to resolve on the page.
+    identifier = user.get("identifier")
+    if identifier:
+        url = short_digest_url(identifier, effective_base_url, digest_date=digest_date)
+    else:
+        url = persona_url(personas, effective_base_url, digest_date=digest_date)
     summary = {
         "digest_path": digest_path,
         "website_url": url,
@@ -492,15 +515,13 @@ def whatsapp_summary(
     count = len(selected)
     shown = len(headlines)
     if count == 1:
-        opener = "Made you a digest — one worth a look:"
+        opener = "Today's read — 1 picked:"
+    elif count > shown:
+        opener = f"Today's reads — {count} picked, top {shown}:"
     else:
-        opener = "Made you a digest — a few worth a look:"
+        opener = f"Today's reads — {count} picked:"
     headline_text = "\n".join(f"- {headline}" for headline in headlines)
-    if count > shown:
-        footer = f"Full set ({count}): {url}"
-    else:
-        footer = f"Read it here: {url}"
-    summary["message"] = f"{opener}\n\n{headline_text}\n\n{footer}"
+    summary["message"] = f"{opener}\n\n{headline_text}\n\n{url}"
     return summary
 
 

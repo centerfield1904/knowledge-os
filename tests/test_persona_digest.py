@@ -477,7 +477,8 @@ def test_whatsapp_summary_uses_user_persona_url(tmp_path):
 
     summary = whatsapp_summary(str(user_path), str(digest_path))
 
-    assert summary["website_url"] == "https://www.bvaibhav.info/knos-digest?personas=ux_design"
+    # Compact share link resolves the reader from `u=` rather than spelling out personas.
+    assert summary["website_url"] == "https://www.bvaibhav.info/knos-digest?u=kintu"
     assert summary["item_count"] == 1
     assert "Pure design story" in summary["message"]
 
@@ -513,10 +514,11 @@ def test_whatsapp_summary_ranks_teasers_by_points_and_strips_emoji(tmp_path):
     summary = whatsapp_summary(str(users_dir / "vb.json"), str(digest))
     lines = summary["message"].splitlines()
     teasers = [l[2:] for l in lines if l.startswith("- ")]
-    # Top 3 by points, highest first; the 10-point item is dropped from teasers.
+    # Ranked by points desc; unscored newsletter items rank above very low-signal HN,
+    # so the 10-point HN piece is the one dropped from the top 3.
     assert teasers == ["High signal piece", "Mid signal piece", "Newsletter headliner"]
     # The leading source emoji must not appear in the teaser.
     assert "📰" not in summary["message"]
-    # Four items total, so the footer advertises the full set, not "Read it here".
-    assert "Full set (4):" in summary["message"]
-    assert summary["message"].startswith("Made you a digest — a few worth a look:")
+    # Four items, three shown — opener reflects that the teaser is a top-N slice.
+    assert summary["message"].startswith("Today's reads — 4 picked, top 3:")
+    assert summary["website_url"] in summary["message"]

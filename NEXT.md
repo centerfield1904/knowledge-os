@@ -61,6 +61,7 @@
 ### Similar
 - [ ] https://www.kerns.ai
 - [ ] https://github.com/herol3oy/kiosk24
+- [ ] https://www.signalbloom.ai/
 
 ### Features
 - [ ] **Thread continuity** - "You saw Story X yesterday, here's an update/follow-up"
