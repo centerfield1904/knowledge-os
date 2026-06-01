@@ -2,6 +2,7 @@
 import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
+  proto,
   useMultiFileAuthState,
 } from '@whiskeysockets/baileys'
 import P from 'pino'
@@ -11,11 +12,15 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 
 const DEFAULT_SESSION_DIR = path.join(homedir(), '.config', 'knowledge-os', 'baileys-auth')
+const STATUS_NAMES = Object.fromEntries(
+  Object.entries(proto.WebMessageInfo.Status).map(([name, value]) => [value, name.toLowerCase()])
+)
 
 function parseArgs(argv) {
   const args = {
     sessionDir: process.env.BAILEYS_SESSION_DIR || DEFAULT_SESSION_DIR,
     timeoutMs: Number(process.env.BAILEYS_TIMEOUT_MS || 60000),
+    waitReceiptMs: Number(process.env.BAILEYS_WAIT_RECEIPT_MS || 15000),
     maxConnectAttempts: Number(process.env.BAILEYS_CONNECT_ATTEMPTS || 3),
     loginOnly: false,
   }
@@ -33,6 +38,9 @@ function parseArgs(argv) {
         break
       case '--timeout-ms':
         args.timeoutMs = Number(argv[++index])
+        break
+      case '--wait-receipt-ms':
+        args.waitReceiptMs = Number(argv[++index])
         break
       case '--connect-attempts':
         args.maxConnectAttempts = Number(argv[++index])
@@ -59,6 +67,7 @@ Options:
   --message TEXT         WhatsApp message body
   --session-dir PATH     Auth session directory, defaults to ~/.config/knowledge-os/baileys-auth
   --timeout-ms N         Connect/send timeout, defaults to 60000
+  --wait-receipt-ms N    Wait for delivery/read receipt after send, defaults to 15000; 0 disables
   --connect-attempts N   Socket reconnect attempts for restart-required handshakes, defaults to 3
   --login-only           Connect and save a linked session without sending
   -h, --help             Show this help
@@ -82,6 +91,152 @@ function statusCodeFromDisconnect(lastDisconnect) {
 function isRestartRequired(lastDisconnect) {
   const statusCode = statusCodeFromDisconnect(lastDisconnect)
   return statusCode === DisconnectReason.restartRequired || statusCode === 515
+}
+
+function statusName(status) {
+  return STATUS_NAMES[status] || (typeof status === 'undefined' ? null : `unknown_${status}`)
+}
+
+function isDeliveryStatus(status) {
+  return status >= proto.WebMessageInfo.Status.DELIVERY_ACK
+}
+
+function sameReceiptKey(key, jid, messageId) {
+  return key?.id === messageId && key?.remoteJid === jid
+}
+
+function createReceiptWaiter(sock, jid, timeoutMs) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return {
+      setMessageId() {},
+      promise: Promise.resolve({
+        receiptStatus: 'not_waited',
+        receiptTimedOut: false,
+        waitReceiptMs: timeoutMs,
+      }),
+    }
+  }
+
+  let messageId = null
+  let latestStatus = null
+  let settled = false
+  let timeout
+  let resolveWait
+  const pendingUpdates = []
+
+  const cleanup = () => {
+    clearTimeout(timeout)
+    sock.ev.off('messages.update', onMessagesUpdate)
+    sock.ev.off('message-receipt.update', onMessageReceiptUpdate)
+    sock.ev.off('connection.update', onConnectionUpdate)
+  }
+
+  const settle = (payload) => {
+    if (settled) {
+      return
+    }
+    settled = true
+    cleanup()
+    resolveWait(payload)
+  }
+
+  const observeStatus = (status, source) => {
+    latestStatus = status
+    if (isDeliveryStatus(status)) {
+      settle({
+        receiptStatus: statusName(status),
+        receiptTimedOut: false,
+        receiptSource: source,
+        waitReceiptMs: timeoutMs,
+      })
+    }
+  }
+
+  const observeUpdate = ({ key, update }, source) => {
+    if (!messageId) {
+      pendingUpdates.push({ key, update, source })
+      return
+    }
+    if (sameReceiptKey(key, jid, messageId)) {
+      observeStatus(update?.status, source)
+    }
+  }
+
+  const flushPending = () => {
+    for (const item of pendingUpdates.splice(0)) {
+      observeUpdate(item, item.source)
+      if (settled) {
+        break
+      }
+    }
+  }
+
+  function onMessagesUpdate(updates) {
+    for (const item of updates) {
+      observeUpdate(item, 'messages.update')
+      if (settled) {
+        break
+      }
+    }
+  }
+
+  function onMessageReceiptUpdate(updates) {
+    for (const item of updates) {
+      observeUpdate(
+        {
+          key: item.key,
+          update: item.receipt?.readTimestamp
+            ? { status: proto.WebMessageInfo.Status.READ }
+            : { status: proto.WebMessageInfo.Status.DELIVERY_ACK },
+        },
+        'message-receipt.update',
+      )
+      if (settled) {
+        break
+      }
+    }
+  }
+
+  function onConnectionUpdate(update) {
+    if (update.connection === 'close') {
+      settle({
+        receiptStatus: latestStatus !== null ? statusName(latestStatus) : 'connection_closed_before_receipt',
+        receiptTimedOut: false,
+        waitReceiptMs: timeoutMs,
+      })
+    }
+  }
+
+  const promise = new Promise((resolve) => {
+    resolveWait = resolve
+    timeout = setTimeout(() => {
+      settle({
+        receiptStatus: latestStatus !== null ? statusName(latestStatus) : 'timed_out_waiting_for_receipt',
+        receiptTimedOut: true,
+        waitReceiptMs: timeoutMs,
+      })
+    }, timeoutMs)
+  })
+
+  sock.ev.on('messages.update', onMessagesUpdate)
+  sock.ev.on('message-receipt.update', onMessageReceiptUpdate)
+  sock.ev.on('connection.update', onConnectionUpdate)
+
+  return {
+    setMessageId(id) {
+      if (!id) {
+        settle({
+          receiptStatus: 'missing_message_id',
+          receiptTimedOut: false,
+          waitReceiptMs: timeoutMs,
+        })
+        return
+      }
+      messageId = id
+      flushPending()
+    },
+    promise,
+  }
 }
 
 async function withTimeout(promise, timeoutMs, label) {
@@ -166,6 +321,9 @@ async function main() {
   if (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0) {
     throw new Error('--timeout-ms must be a positive number')
   }
+  if (!Number.isFinite(args.waitReceiptMs) || args.waitReceiptMs < 0) {
+    throw new Error('--wait-receipt-ms must be a non-negative number')
+  }
   if (!Number.isFinite(args.maxConnectAttempts) || args.maxConnectAttempts <= 0) {
     throw new Error('--connect-attempts must be a positive number')
   }
@@ -178,16 +336,21 @@ async function main() {
     }
 
     const jid = jidForPhone(args.to)
+    const receiptWaiter = createReceiptWaiter(sock, jid, args.waitReceiptMs)
     const result = await withTimeout(
       sock.sendMessage(jid, { text: args.message }),
       args.timeoutMs,
       'WhatsApp send',
     )
+    const messageId = result?.key?.id || null
+    receiptWaiter.setMessageId(messageId)
+    const receipt = await receiptWaiter.promise
     console.log(JSON.stringify({
       ok: true,
       to: args.to,
       jid,
-      messageId: result?.key?.id || null,
+      messageId,
+      ...receipt,
       sessionDir: args.sessionDir,
     }))
   } finally {

@@ -252,9 +252,12 @@ object Ingest:
       if config.throttleMs > 0 then Thread.sleep(config.throttleMs.toLong)
       fetched
     }
-    val result = stories.toVector.sortBy(-_.score).take(config.maxItems)
+    val result = rankedHackerNewsStories(stories, config.maxItems)
     log(s"Hacker News fetch produced ${result.size} item(s) after filtering")
     result
+
+  def rankedHackerNewsStories(stories: IterableOnce[Story], maxItems: Int): Vector[Story] =
+    stories.iterator.take(maxItems).toVector
 
   def fetchHistoricalHackerNews(date: LocalDate, config: HackerNewsFetchConfig): Vector[Story] =
     val start = date.atStartOfDay(ZoneOffset.UTC).toEpochSecond

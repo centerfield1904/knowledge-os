@@ -159,6 +159,33 @@ class IngestSuite extends munit.FunSuite:
     assertEquals(story.score, 100)
   }
 
+  test("rankedHackerNewsStories preserves HN ranking after score filtering") {
+    def story(id: String, score: Int): Ingest.Story =
+      Ingest.Story(
+        title = s"Story $id",
+        url = s"https://example.com/$id",
+        source = "hackernews",
+        sourceApi = "hackernews_firebase",
+        externalId = Some(id),
+        authorName = "alice",
+        score = score,
+        commentCount = 0,
+        itemText = None,
+        publishedAt = Some("2026-01-01T00:00:00Z"),
+        metadataJson = "{}"
+      )
+
+    val rankedStories = Vector(
+      story("frontpage-rank-1", 80),
+      story("frontpage-rank-2", 1000),
+      story("frontpage-rank-3", 90)
+    )
+
+    val selected = Ingest.rankedHackerNewsStories(rankedStories, maxItems = 2)
+
+    assertEquals(selected.map(_.externalId.get), Vector("frontpage-rank-1", "frontpage-rank-2"))
+  }
+
   test("rssStoriesFromXml normalizes feed items") {
     val xml =
       """
