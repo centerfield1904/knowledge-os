@@ -22,7 +22,7 @@ The key architectural rule is separation of runs:
 - Running digest generation selects/renders from already-scored rows; it does not scrape or score. DB-backed digest persistence can also create `digests`/`digest_items`.
 - Recording feedback writes user/item events; it does not mutate catalog or scoring outputs.
 
-The modular path follows this separation. `scripts/run_modular_digest.sh` is an orchestration wrapper that runs the module commands in order; the individual modules still communicate only through SQLite. The older `scripts/run_digest_v2.sh` path remains for compatibility/comparison and still combines several concerns.
+The modular path follows this separation. `scripts/run_modular_digest.sh` is an orchestration wrapper that runs the module commands in order; the individual modules still communicate only through SQLite.
 
 ## Module Boundaries
 
@@ -592,16 +592,13 @@ bash scripts/query_scoring.sh --topic AI/ML/LLMs --since 2026-05-14
 
 Current implementation gaps relative to this architecture:
 
-- `scripts/run_digest_v2.sh` still fetches, merges, processes, scores, stores, renders, and archives in one legacy compatibility path.
-- Legacy `digest_pipeline.py` still persists items and item-topic scores during digest generation; the scheduled path uses precomputed scores and renders one website-facing digest artifact.
-- Legacy storage still has older topic/digest shapes; the modular schema moves persona/user preference to subscriptions and stores digest membership in `digest_items`.
-- The modular renderer is reliable for persona-marked digest output, but it does not yet have full legacy formatter parity for engagement sections, author karma, and top-comment blurbs.
+- The modular renderer is reliable for persona-marked digest output, but it does not yet include optional engagement sections, author karma, or top-comment blurbs.
 - Cross-day de-dupe for HN repeats should be enforced at render time using recent rendered/delivered artifacts, while preserving an escape hatch for intentional backfills.
 - Engagement-specific summaries can remain, but event ingestion should converge on the common `feedback` table.
 
 Recommended migration order:
 
-1. Bring the modular renderer to feature parity with the legacy formatter where needed.
+1. Add only the enrichment still needed by current users: comment summaries, author karma, and optional engagement sections.
 2. Expand `item_content` population for comments, extracted bodies, summaries, and source annotations.
 3. Add render-time cross-day de-dupe for repeated HN items.
 4. Add a launch health summary command that reports ingest/scoring/selection/drop counts by user and persona.

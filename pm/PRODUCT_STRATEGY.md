@@ -69,7 +69,6 @@ Done means: I open it daily, I finish it most days, and I occasionally think "I'
 |--------|---------|--------|----------------|
 | Stories clicked / digest | unknown | ≥2 | read log sync |
 | Digests opened / week | ~7 (generated, not tracked) | 5+ | delivery confirmation |
-| Engagement opps acted on | unknown | 1–2 / week | engagement.py tracking |
 | Time to first story click | unknown | < 30s | not yet measurable |
 
 ---

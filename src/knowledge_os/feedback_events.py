@@ -9,8 +9,6 @@ from datetime import datetime
 from typing import Dict, Iterable, Optional
 
 from .schema import init_target_schema
-from .sync_reading_log import parse_read_items
-
 
 def _log(message: str) -> None:
     print(f"[{datetime.now().isoformat(timespec='seconds')}] [feedback] {message}", file=sys.stderr)
@@ -18,6 +16,46 @@ def _log(message: str) -> None:
 
 def _json(value: Optional[Dict]) -> Optional[str]:
     return json.dumps(value, ensure_ascii=True, sort_keys=True) if value else None
+
+
+def parse_read_items(md_text: str) -> list[dict]:
+    """Parse checked markdown digest items into title/note/link dictionaries."""
+    results = []
+    lines = md_text.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        match = re.match(r"^- \[x\]\s+(?:[^\w\s]\s*)*(.+?)\s*$", line, re.IGNORECASE)
+        if not match:
+            i += 1
+            continue
+
+        title = match.group(1).strip()
+        note_lines = []
+        link = ""
+        j = i + 1
+        while j < len(lines) and not lines[j].startswith("- ["):
+            content = lines[j]
+            link_match = re.match(r"^\s+🔗\s*(\S+)\s*$", content)
+            if link_match:
+                link = link_match.group(1).strip()
+                j += 1
+                continue
+            if re.match(r"^\s+(↑|🔗|💬|→)\s*", content):
+                j += 1
+                continue
+            note_match = re.match(r"^\s+Notes:\s*(.*)", content)
+            if note_match:
+                text = note_match.group(1).strip()
+                if text:
+                    note_lines.append(text)
+            elif content.strip():
+                note_lines.append(content.strip())
+            j += 1
+
+        results.append({"title": title, "note": "\n".join(note_lines).strip(), "link": link})
+        i = j
+    return results
 
 
 def _get_user_id(conn: sqlite3.Connection, identifier: str, timezone: Optional[str] = None) -> int:

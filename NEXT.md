@@ -23,23 +23,23 @@
 - [x] **Engagement opportunity detection** - COMPLETE (Feb 20: 5 opps/day, username tracking, comment analysis)
 - [x] **Update digest format** - COMPLETE (🎯 Engagement Opportunities section added)
 - [x] **Engagement tracking schema** - COMPLETE (SQLite tables, auto comment sync)
-- [x] **Test full pipeline** — COMPLETE (integration test in tests/test_pipeline_integration.py)
+- [x] **Test full pipeline** — COMPLETE (legacy integration tests removed with the v2 digest path; current coverage focuses on modular schema, persona rendering, queries, WhatsApp delivery, and Scala ingestion)
 - [x] **Monitor delivery reliability** - Track 7 days of successful 2 PM deliveries
 - [ ] **Review match quality** - Are the semantic matches hitting the right content?
-- [x] **Add frequency in config option for sources** — COMPLETE (2026-03-05: `frequency` field per source in config; `_source_is_due()` filter in `process_digest.py`; supports daily/weekly/biweekly/monthly/quarterly/list-of-weekdays; all sources still fetched and stored daily)
+- [x] **Add cadence controls** — COMPLETE (current persona `selection.cadence` and `send_days` control daily/weekly delivery behavior)
 - [x] **Weekly trending topics analysis** For this page, add them to the sources: substack_tspc.csv — COMPLETE (52 Substack feeds from tspc CSV added to config; YouTube/Instagram/Spotify/LinkedIn/profile-only URLs skipped)
-- [x] **Track read content** — COMPLETE (sync_reading_log.py + Read Tracker section in digest)
+- [x] **Track read content** — COMPLETE historically; current feedback ingestion keeps markdown checked-item parsing in `feedback_events.py`
 - [x] **Show yc link** — COMPLETE (HN discussion links + 💬 comment keyword summaries)
-- [x] **Add unit tests** — COMPLETE (4 test files in tests/ covering process_digest, storage, engagement, sync_reading_log)
-- [x] **Add other sources** — COMPLETE (Substack RSS via fetch_substack.py, config-driven feeds)
+- [x] **Add unit tests** — COMPLETE (current tests cover modular schema, persona rendering, queries, storage/read parsing helpers, engagement, and WhatsApp delivery)
+- [x] **Add other sources** — COMPLETE (Substack/RSS via Scala catalog ingestion)
 - [x] **Fix Substack duplicate stories** — COMPLETE (insert_item returns (item_id, is_new); digest only surfaces new stories; author/topic tracking still runs for all fetched content)
 - [x] **Run tests in PR builds** — COMPLETE (2026-03-07: `.github/workflows/tests.yml`; `pytest.ini` with `integration` marker; integration tests deselected in CI with `-m "not integration"`)
-- [x] **build a dashboard** — COMPLETE (2026-03-01: Streamlit app; 2026-03-03: 6 tabs; 2026-03-04: split into PM/Engineering modes via sidebar switcher — PM view: Overview + match quality + Browse + Authors; Engg view: Pipeline Health + Stories + Config + Simulator)
+- [x] **build a dashboard** — COMPLETE historically; old Streamlit dashboard removed with the v2 digest path
 - [ ] **Add economist as a source** - New POC: something with images, something that requires login.
-- [x] **Per-feed frequency for Substack** — COMPLETE (2026-03-07: feeds accept `{"url": "...", "frequency": "..."}` dicts; `_feed_is_due()` in `fetch_substack.py`; string feeds inherit source-level frequency)
-- [x] **Dashboard Config tab: frequency editor** — COMPLETE (2026-03-07: per-feed frequency via dict format in config; dashboard Followed HN Users and Weekend Mode expanders added)
-- [x] **Interesting content** — COMPLETE (2026-03-07: Weekend Mode — stricter topic threshold for Best Matches + high-score Interesting Reads section; configurable via dashboard Config tab "Weekend Mode" expander)
-- [x] **week summary** — COMPLETE (2026-03-07: `src/knowledge_os/weekly_summary.py` queries last 7 days by topic; `scripts/run_digest_v2.sh --fetch-only` for 6-hour cron; add `0 */6 * * * bash scripts/run_digest_v2.sh --fetch-only` and `0 9 * * 1 venv/bin/python -m knowledge_os.weekly_summary` to crontab)
+- [x] **Per-feed frequency for Substack** — COMPLETE historically; superseded by modular source/persona cadence
+- [x] **Dashboard Config tab: frequency editor** — REMOVED with old Streamlit dashboard
+- [x] **Interesting content** — COMPLETE historically; current persona renderer uses thresholded persona selection
+- [x] **week summary** — REMOVED with the v2 digest path
 - [x] **Change what is shown** — COMPLETE (2026-03-07: comment count removed; author HN karma shown as `karma: N`; top comment first sentence shown as 💬 blurb)
 - [x] **Option to manually add or remove HN users that I follow** — COMPLETE (2026-03-07: `followed_hn_users` in config; followed users get ⭐ in digest; dashboard Config tab "Followed HN Users" expander)
 - [ ] For every comment on HN or substack, assess the objective quality: why it was good or bad
@@ -55,8 +55,7 @@
 - [ ] **Store feedback** - Deferred; do not build link/open tracking until the manual launch proves which signal is useful
 
 ### UX
-- [ ] **Redesign the dashboard** - make it super user friendly, less clunky. Keep the streamlit version for all the bells and whistles. Create one for external users.
-- [ ] **Manage scheduled jobs from the dashboard** — Add a dashboard view for Knowledge OS cron jobs: current schedule, last run status, log tail, enable/disable, run-now, and safe edit controls for the daily VB delivery, catalog refresh, weekly summary, and engagement summary jobs.
+- [ ] **Build an ops view if needed** — If cron visibility becomes painful, create a small status page or CLI around current schedules, last run markers, and log tails.
 
 ### Similar
 - [ ] https://www.kerns.ai

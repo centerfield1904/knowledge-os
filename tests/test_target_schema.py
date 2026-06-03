@@ -2,7 +2,7 @@
 import json
 import sqlite3
 
-from knowledge_os.feedback_events import insert_feedback_event
+from knowledge_os.feedback_events import insert_feedback_event, parse_read_items
 from knowledge_os.schema import init_target_schema
 from knowledge_os.subscriptions import load_user_subscriptions
 
@@ -148,6 +148,38 @@ def test_feedback_event_is_user_per_item(tmp_path):
         assert row == (feedback_id, "reader", 1, "saved", '{"reason": "important"}')
     finally:
         conn.close()
+
+
+def test_parse_read_items_from_markdown_digest():
+    markdown = """\
+*AI/ML*
+- [x] Cool AI Tool
+  ↑200 | by alice
+  🔗 https://news.ycombinator.com/item?id=1
+  Notes: Worth sharing
+- [ ] Unread Story
+  🔗 https://example.com/unread
+- [X] 📰 Newsletter Piece
+  🔗 https://example.com/post
+  Notes:
+
+  Strong framing.
+"""
+
+    items = parse_read_items(markdown)
+
+    assert items == [
+        {
+            "title": "Cool AI Tool",
+            "note": "Worth sharing",
+            "link": "https://news.ycombinator.com/item?id=1",
+        },
+        {
+            "title": "Newsletter Piece",
+            "note": "Strong framing.",
+            "link": "https://example.com/post",
+        },
+    ]
 
 
 def test_load_user_subscriptions_uses_global_topics(tmp_path):
