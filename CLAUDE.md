@@ -8,10 +8,15 @@ Multi-source digest pipeline that fetches stories from HN and Substack RSS, matc
 # Run production morning ingest/render and push the digest artifact
 bash scripts/run_catalog_ingest.sh
 
+# Run ingest, monitor the website publish action, and verify public readiness
+bash scripts/run_daily_ingest_and_verify_publish.sh
+
 # Run modular ingest/render locally without publishing
 bash scripts/run_modular_digest.sh --db knowledge_os.db --date "$(date +%F)" --overwrite
 
 # Send from the existing rendered digest artifact
+bash scripts/daily_manas_whatsapp_digest.sh
+bash scripts/daily_mikey_whatsapp_digest.sh
 bash scripts/daily_vb_whatsapp_digest.sh
 bash scripts/weekly_kintu_whatsapp_digest.sh
 
@@ -74,11 +79,12 @@ I'm an engineer using this project to build product management skills. When PM m
 - DB access in modular code: prefer explicit SQLite connections and helpers in `schema.py`/`query_pipeline.py`; legacy code goes through `storage_interface.get_storage()`
 - DB access in `engagement.py`: uses raw `sqlite3` directly (separate schema)
 - Errors/warnings: `print(..., file=sys.stderr)` — stdout is reserved for pipeline output
-- Digest artifact: `knos-digest/YYYY-MM-DD.md`; the morning wrapper commits and pushes the latest file when it changes
+- Digest artifact: `knos-digest/YYYY-MM-DD.md`; the morning wrapper commits and pushes the latest file when it changes, then triggers `centerfield1904/bvaibhav-info/update-digest.yml` via `gh`
 - `published_at` stores the source-native publication/submission timestamp; `fetched_at` stores the logical catalog snapshot date; `source_api` records the concrete provider
 - Persona cadence is source-aware: HN uses `fetched_at`; RSS/Substack uses `published_at`
 - Legacy archive naming: `archive/YYYY-MM-DD_{stories,digest}.{json,txt}`
 - HN username `vb7132` is hardcoded in `engagement.py` and `engagement_summary.py`
+- Website publish guard: `scripts/check_daily_digest_ready.sh` verifies the morning success marker and public `https://www.bvaibhav.info/data/knos-digest.json`; the 10:30 IST cron uses `--alert-vb`
 - WhatsApp digest links: `persona_url()` in `persona_digest.py` appends `&date=YYYY-MM-DD` derived from the digest filename stem (only when it matches a real date), so an old message reopens that day's items, not the latest site export; the site page (`bvaibhav-info/src/app/knos-digest/page.tsx`) reads the `date` param (`latest`/`all`/`YYYY-MM-DD`)
 
 ## Testing

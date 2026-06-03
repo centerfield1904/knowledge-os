@@ -54,16 +54,26 @@ select source, source_api, count(*) from items group by source, source_api;
 
 ### Delivery and WhatsApp ops
 
-Morning cron generates the digest, commits `knos-digest/YYYY-MM-DD.md`, and pushes it so the remote website GitHub Action can publish:
+Morning cron generates the digest, commits `knos-digest/YYYY-MM-DD.md`, pushes it, and triggers the remote website GitHub Action:
 
 ```bash
 bash scripts/run_catalog_ingest.sh
+bash scripts/run_daily_ingest_and_verify_publish.sh
 bash scripts/run_catalog_ingest.sh --date 2026-05-28
 ```
 
-Afternoon cron sends from the existing digest without regenerating catalog/digest or rebuilding site. VB is daily; Kintu is Friday weekly, matching `ux_design.send_days`.
+Daily publish readiness guard:
 
 ```bash
+bash scripts/check_daily_digest_ready.sh
+bash scripts/check_daily_digest_ready.sh --alert-vb
+```
+
+Afternoon cron sends from the existing digest without regenerating catalog/digest or rebuilding site. Manas and Mikey wrappers fail closed if the website has not published today's digest. VB is daily; Kintu is Friday weekly, matching `ux_design.send_days`.
+
+```bash
+bash scripts/daily_manas_whatsapp_digest.sh
+bash scripts/daily_mikey_whatsapp_digest.sh
 bash scripts/daily_vb_whatsapp_digest.sh
 bash scripts/weekly_kintu_whatsapp_digest.sh
 bash scripts/deliver_whatsapp_digest.sh --users vb --skip-digest --skip-site --send

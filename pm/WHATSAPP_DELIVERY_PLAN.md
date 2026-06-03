@@ -1,32 +1,28 @@
 # WhatsApp Delivery Plan
 
-## Current Recommendation
+## Current Status
 
-Use manual WhatsApp delivery first. Do not build WhatsApp automation yet.
-
-The immediate product question is whether Kintu and Mikey find the digest useful, not whether the delivery system is automated. A manually shared GitHub markdown URL is enough to test value.
+WhatsApp delivery is automated through the website link flow. The morning job generates the canonical digest, pushes `knos-digest/YYYY-MM-DD.md`, triggers the `bvaibhav-info` GitHub Action, and verifies public website readiness before external links are sent.
 
 ## V1 Flow
 
-Generate one digest per user:
+Run and verify the daily ingest/publish path:
 
 ```bash
-bash scripts/run_user_digest.sh --user kintu --overwrite
-bash scripts/run_user_digest.sh --user mikey --overwrite
+bash scripts/run_daily_ingest_and_verify_publish.sh
 ```
 
-Publish the rendered markdown and print the GitHub URL:
+Check daily website readiness:
 
 ```bash
-DATE="$(date +%F)"
-bash scripts/publish_digest.sh --user kintu --date "$DATE"
-bash scripts/publish_digest.sh --user mikey --date "$DATE"
+bash scripts/check_daily_digest_ready.sh
+bash scripts/check_daily_digest_ready.sh --alert-vb
 ```
 
 Expected URL shape:
 
 ```text
-https://github.com/centerfield1904/knowledge-os/blob/main/knos-digest/kintu/YYYY-MM-DD.md
+https://www.bvaibhav.info/knos-digest?p=<persona-codes>&d=YYYY-MM-DD
 ```
 
 ## Suggested Messages
@@ -35,7 +31,7 @@ https://github.com/centerfield1904/knowledge-os/blob/main/knos-digest/kintu/YYYY
 
 ```text
 Made you a small UX/design digest for today:
-<github-url>
+<website-url>
 
 Can you tell me if even 1-2 links feel useful? If not, I’ll tune the sources.
 ```
@@ -44,7 +40,7 @@ Can you tell me if even 1-2 links feel useful? If not, I’ll tune the sources.
 
 ```text
 I made you a daily AI/LLM digest based on the article you asked about:
-<github-url>
+<website-url>
 
 Quick check: are these the kind of links you’d actually want to receive?
 ```
@@ -73,34 +69,33 @@ The only record for now is a short human note in `pm/launch_log.md` when somethi
 
 ### Cadence
 
-- **Kintu and Mikey**: twice-weekly, Tuesday and Friday.
+- **Kintu**: Friday weekly, matching `ux_design.send_days`.
   - Kintu: aggregating across 3–4 days solves the `ux_design` sparsity problem on HN
-  - Mikey: lower social pressure than daily for a v1 external user; reads as "considered share" rather than "noise from VB"
-  - Skips Monday (weekend carryover) and weekends
-  - Tradeoff: loses topicality. Mitigated by keeping `freshness_days` short (7 for Mikey, 14 for Kintu)
+- **Mikey**: daily at 2 PM Pacific.
+- **Manas**: daily at 2 PM Singapore time.
 - **VB**: stays daily — own reading habit, not a delivery question
-- Cadence is enforced by *when the script is run*, not by the pipeline. `"cadence": "biweekly"` + `"send_days": ["tue", "fri"]` in `configs/users/{kintu,mikey}.json` documents intent.
+- Cadence is enforced by persona `selection.cadence` and cron timing. User configs in `configs/users/*.json` select persona bundles; delivery wrappers send from the shared website-facing artifact.
 
 ### State of readiness
 
 **Ready**
-- Persona model + `configs/users/{kintu,mikey,vb}.json` exist
+- Persona model + `configs/users/{kintu,manas,mikey,vb}.json` exist
 - Modular pipeline wired: ingestion → persona materializer → scoring → selection → render
-- `publish_digest.sh` commits markdown and prints a stable GitHub URL
-- Delivery decision frozen: manual WhatsApp share of a GitHub markdown URL
-- Dry-run samples exist for Kintu, Mikey, and VB
+- `scripts/run_catalog_ingest.sh` commits markdown and triggers the website publish workflow
+- `scripts/check_daily_digest_ready.sh` verifies the public website JSON and can alert VB
+- Delivery decision frozen: WhatsApp share of the persona-filtered website URL
+- Dry-run samples exist for Kintu, Mikey, Manas, and VB
 
 **Gaps blocking a clean first send**
-1. Modular renderer exposes internal metadata and has rough external-user formatting
-2. Modular renderer is missing comment blurbs and author karma (parity gap, `NEXT.md`)
-3. Kintu's source pool (`ux_design` on HN + current Substacks) returns <3 useful items
-4. `send_whatsapp_digest_prompt.sh` helper not built yet
+1. Kintu's source pool can still be sparse on non-Friday runs
+2. External-user reply handling is still manual
+3. Link click/open tracking is intentionally not built yet
 
 ### Phase 1 — Dry run before sending anything
 
 Goal: see what each user would actually receive before committing to a send.
 
-1. Run `bash scripts/run_user_digest.sh --user kintu --overwrite` and `--user mikey --overwrite` against `knowledge_os.db`. Inspect the rendered markdown locally — do not publish.
+1. Run `bash scripts/run_daily_ingest_and_verify_publish.sh`. Inspect `knos-digest/YYYY-MM-DD.md` and the website URL locally before sending new-user links.
 2. **Hard gate for Kintu:** if her digest has fewer than 3 items, do not launch her until 4–6 design Substack feeds are added (a16z design, Nielsen Norman, Julie Zhuo, etc.). Add to shared sources if broadly useful, otherwise scope to her config.
 3. Read Mikey's digest as if you were him. If it reads as generic HN noise rather than AI-researcher signal, raise `min_topic_score` from 0.35 → 0.40 in his config.
 
@@ -137,7 +132,7 @@ Only what is needed to make the digest feel polished to a stranger:
 
 Prerequisite: Phase 2 renderer fixes are done, Mikey has at least 3 selected items, and Kintu has at least 3 selected items after source additions.
 
-1. Build `scripts/send_whatsapp_digest_prompt.sh --user <id> --date YYYY-MM-DD` — outputs path, GitHub URL, and suggested message body (see "Next Small Build" below).
+1. Use `scripts/send_whatsapp_digest_prompt.sh --user <id> --date YYYY-MM-DD` or the daily delivery wrappers to produce/send the website URL.
 2. Send Mikey first using the message above.
 3. **Wait 24 hours before sending Kintu** — she is family, lower stakes to delay, and one real-world data point is worth more than a parallel send.
 4. After Mikey's first reply (or 24h silence), send Kintu.
@@ -147,7 +142,7 @@ Prerequisite: Phase 2 renderer fixes are done, Mikey has at least 3 selected ite
 - Optionally log only material observations in `pm/launch_log.md`: date, user, what changed for the next send.
 - Do not build feedback infra during week 1. Goal is answering the strategy questions in `PM_NEXT.md`, not automating anything.
 - After 5–7 sends each, decide:
-  - Is markdown-on-mobile readable enough?
+  - Is the website page readable enough on mobile?
   - Is Mikey's persona assignment correct?
   - Does Kintu have enough source coverage?
   - Is there a repeated enough reply pattern to justify a real feedback feature later?
@@ -189,9 +184,9 @@ Implement the smallest code changes needed to make the manual launch reliable.
 - Kintu source coverage now includes UX Collective, Nielsen Norman Group, The Looking Glass, Proof of Concept, Some Designers, Digital Psychology AI, and Soren Iverson feeds.
 - Mikey is tuned to `min_topic_score: 0.42` and `freshness_days: 10`; this excludes the observed `0.413` low-signal AI rant while keeping stronger AI-agent/LLM items.
 
-### Delivery surface: GitHub markdown vs. site page
+### Delivery surface: site page
 
-The personal site at `bvaibhav.info` already renders my own digest at `/knos-digest` (source: `~/dev/projects/bvaibhav-info/src/app/knos-digest/page.tsx`, data from `public/data/knos-digest.json`). It's plausible to give Kintu and Mikey their own page (e.g., `/knos-digest/m-<slug>`) instead of a raw GitHub markdown URL.
+The personal site at `bvaibhav.info` renders the shared digest at `/knos-digest` from `public/data/knos-digest.json`. WhatsApp messages use persona-filtered links with compact persona codes and date pins.
 
 **Pros of a site URL**
 - Far better mobile reading — GitHub markdown on phones has UI chrome and login nags
@@ -204,14 +199,7 @@ The personal site at `bvaibhav.info` already renders my own digest at `/knos-dig
 - Site is public; identifiable URLs (`/knos-digest/mikey`) leak names and reading interests. Mitigation: obfuscated slugs (`/knos-digest/m-7a3f`), but still indexable unless `noindex` is set
 - More moving parts before we even know the content is valuable
 
-**Decision for launch**: stay on the GitHub markdown URL for Phase 3. It is the cheapest way to test *whether the content is useful*. The site page is a Phase 5+ upgrade triggered by one specific signal: a user reports the markdown is hard to read on mobile, or asks for a "real" link. At that point:
-
-1. Add a `/knos-digest/[slug]` dynamic route to the site
-2. Have the digest pipeline export `public/data/knos-digest-<slug>.json` alongside the markdown
-3. Set `noindex` on per-user pages; use unguessable slugs
-4. Keep markdown as a fallback / archive
-
-Tracked as a deferred item below.
+**Decision for launch**: use the existing site page rather than GitHub markdown. Keep markdown as the source artifact and fallback archive.
 
 ### Explicit non-goals for this launch
 

@@ -38,6 +38,6 @@
 | Date | Decision | Why |
 |------|----------|-----|
 | 2026-05-13 | Persona model over per-user topic elicitation | Onboarding Mikey exposed that asking for keyword lists is a bad first interaction. Personas make it a role assignment instead. |
-| 2026-05-13 | Markdown URL via WhatsApp over email delivery | Email infra (SMTP, app passwords) was 2 hours of work; a shared GitHub markdown URL is 2 minutes. Validate that simple delivery works before building something more. |
+| 2026-05-13 | WhatsApp website link over email delivery | Email infra (SMTP, app passwords) was avoidable; the useful delivery surface is a persona-filtered `bvaibhav.info/knos-digest` link sent over WhatsApp. |
 | 2026-05-13 | Separate DB per user | Engagement tracking, delivered items, and topic scores shouldn't intermingle across users. Cheap to keep separate; expensive to untangle later. |
 | 2026-05-13 | No dashboard for external users (yet) | Kintu and Mikey don't need a dashboard. They need a daily link. Build the dashboard when the number of users makes the link unscalable. |

@@ -17,5 +17,5 @@ if [ -n "${JAVA_HOME:-}" ]; then
 fi
 export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
 
-bash scripts/check_manas_digest_ready.sh --user mikey
+bash scripts/check_daily_digest_ready.sh --user mikey
 bash scripts/deliver_whatsapp_digest.sh --users mikey --skip-digest --skip-site --send

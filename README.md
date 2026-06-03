@@ -44,7 +44,7 @@ flowchart LR
     feedback --> events
 ```
 
-Current production uses the modular path: morning catalog ingest/render through `scripts/run_catalog_ingest.sh`, remote website publish from the pushed digest artifact, and afternoon WhatsApp delivery from the existing rendered digest. `scripts/run_digest_v2.sh` remains as a legacy pipeline for compatibility and comparison only.
+Current production uses the modular path: morning catalog ingest/render through `scripts/run_catalog_ingest.sh`, immediate remote website publish via the `bvaibhav-info` GitHub Action, and afternoon WhatsApp delivery from the existing rendered digest. `scripts/run_digest_v2.sh` remains as a legacy pipeline for compatibility and comparison only.
 
 ---
 
@@ -64,6 +64,9 @@ export PATH="$JAVA_HOME/bin:$PATH"
 
 # Run the production morning ingest/render and push the digest artifact
 bash scripts/run_catalog_ingest.sh
+
+# Run ingest, watch the website publish workflow, and verify bvaibhav.info
+bash scripts/run_daily_ingest_and_verify_publish.sh
 
 # Send from the existing rendered digest artifact
 bash scripts/daily_vb_whatsapp_digest.sh
@@ -134,7 +137,7 @@ venv/bin/python -m streamlit run src/knowledge_os/dashboard.py
 Delivery is intentionally split into three steps:
 
 1. Generate the website-facing digest and push the markdown artifact.
-2. Let the remote `bvaibhav-info` GitHub Action export/build the website from that artifact.
+2. Trigger the remote `bvaibhav-info` GitHub Action so the website exports/builds from that artifact.
 3. Send a short WhatsApp message that links to the persona-filtered website view.
 
 The canonical digest artifact is:
@@ -162,7 +165,7 @@ export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"
 bash scripts/run_catalog_ingest.sh --date "$(date +%F)"
 ```
 
-This performs catalog ingestion, persona materialization, topic scoring, combined digest rendering, and a git push of `knos-digest/YYYY-MM-DD.md` when the artifact changed. To run the same pipeline without committing/pushing, call `scripts/run_modular_digest.sh` directly:
+This performs catalog ingestion, persona materialization, topic scoring, combined digest rendering, a git push of `knos-digest/YYYY-MM-DD.md` when the artifact changed, and a `gh workflow run` dispatch for `centerfield1904/bvaibhav-info/update-digest.yml`. To run the same pipeline without committing/pushing or triggering the website workflow, call `scripts/run_modular_digest.sh` directly:
 
 ```bash
 bash scripts/run_modular_digest.sh \
@@ -253,7 +256,23 @@ If `query_fetched_items.sh` shows scored rows but the debug render reports `outs
 
 ### Website publish
 
-The scheduled publish path is remote. `scripts/run_catalog_ingest.sh` commits and pushes the latest `knos-digest/YYYY-MM-DD.md`; the GitHub Action in the `bvaibhav-info` repo then exports/builds the website from that digest artifact.
+The scheduled publish path is remote. `scripts/run_catalog_ingest.sh` commits and pushes the latest `knos-digest/YYYY-MM-DD.md`, then triggers the `bvaibhav-info` GitHub Action with GitHub CLI. The wrapper writes a daily success marker under `~/Library/Application Support/knowledge-os/cron/` only after the digest push and workflow dispatch succeed.
+
+For manual operations, use the monitored wrapper:
+
+```bash
+bash scripts/run_daily_ingest_and_verify_publish.sh
+```
+
+That command appends to `/Users/vb/Library/Logs/knowledge-os-ingest.log`, watches the triggered `bvaibhav-info` workflow run, and verifies that `https://www.bvaibhav.info/data/knos-digest.json` contains today's digest.
+
+The 10:30 IST readiness check is:
+
+```bash
+bash scripts/check_daily_digest_ready.sh --alert-vb
+```
+
+Without `--alert-vb`, the readiness command only prints failures and exits non-zero. With `--alert-vb`, it sends VB one WhatsApp alert per day if the daily digest is not published by the check time. Manas and Mikey delivery wrappers also call this readiness check and fail closed before sending if the website is stale.
 
 For manual local website verification only, run the export in the `bvaibhav-info` checkout:
 
@@ -358,7 +377,7 @@ bash scripts/deliver_whatsapp_digest.sh \
   --send-command "whatsapp-send --phone {phone} --text {message}"
 ```
 
-Cron example for the second Mac:
+Cron example for the delivery Mac:
 
 ```cron
 CRON_TZ=Asia/Kolkata
@@ -367,11 +386,16 @@ PATH=/opt/homebrew/bin:/opt/homebrew/opt/openjdk/bin:/usr/local/bin:/usr/bin:/bi
 JAVA_HOME=/opt/homebrew/opt/openjdk
 
 0 9 * * * /Users/vb/dev/projects/knowledge-os/scripts/run_catalog_ingest.sh >> /Users/vb/Library/Logs/knowledge-os-ingest.log 2>&1
+30 10 * * * /Users/vb/dev/projects/knowledge-os/scripts/check_daily_digest_ready.sh --alert-vb >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
+30 11 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_manas_whatsapp_digest.sh >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
 0 14 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_vb_whatsapp_digest.sh >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
 0 14 * * 5 /Users/vb/dev/projects/knowledge-os/scripts/weekly_kintu_whatsapp_digest.sh >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
+
+CRON_TZ=America/Los_Angeles
+0 14 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_mikey_whatsapp_digest.sh >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
 ```
 
-In this split schedule, the 9 AM job calls `scripts/run_modular_digest.sh` to ingest catalog data and render `knos-digest/YYYY-MM-DD.md`. Website export/build runs in the remote GitHub Action after the rendered digest change is pushed. The 2 PM delivery jobs send WhatsApp messages from the existing rendered digest and do not regenerate the catalog or digest. VB receives a daily digest; Kintu receives the weekly UX/design digest on Friday, matching the `ux_design` persona cadence.
+In this split schedule, the 9 AM IST job calls `scripts/run_modular_digest.sh` to ingest catalog data and render `knos-digest/YYYY-MM-DD.md`, then triggers the remote website workflow. The 10:30 IST readiness job alerts VB if the website has not published the daily digest. Manas receives the link at 2 PM Singapore time (`11:30` under `Asia/Kolkata`). VB receives a daily digest at 2 PM IST; Kintu receives the weekly UX/design digest on Friday; Mikey receives the link at 2 PM Pacific time under `America/Los_Angeles`.
 
 The morning wrapper commits and pushes only the rendered `knos-digest/YYYY-MM-DD.md` artifact when it changes:
 
@@ -383,6 +407,8 @@ bash scripts/run_catalog_ingest.sh --date 2026-05-28
 The afternoon wrapper sends from the existing artifact and skips generation/site work:
 
 ```bash
+bash scripts/daily_manas_whatsapp_digest.sh
+bash scripts/daily_mikey_whatsapp_digest.sh
 bash scripts/daily_vb_whatsapp_digest.sh
 bash scripts/weekly_kintu_whatsapp_digest.sh
 bash scripts/deliver_whatsapp_digest.sh --users vb --skip-digest --skip-site --send
@@ -396,9 +422,10 @@ The cron host must have:
 - Python dependencies installed in `venv/`
 - Node dependencies installed in this repo with `npm install`
 - OpenJDK and SBT available. If using Apple Silicon Homebrew, install Java with `/opt/homebrew/bin/brew install openjdk`; if using Intel Homebrew, `brew install openjdk` installs under `/usr/local/opt/openjdk`.
+- GitHub CLI installed and authenticated with repo access: `gh auth login -h github.com`
 - Baileys WhatsApp Web session linked in `~/.config/knowledge-os/baileys-auth`
 
-The website repo checkout and its Node dependencies are only needed if you manually run local website export/build. The scheduled publish path relies on the pushed digest artifact and the remote website GitHub Action.
+The website repo checkout and its Node dependencies are only needed if you manually run local website export/build. The scheduled publish path relies on the pushed digest artifact, authenticated `gh`, and the remote website GitHub Action.
 
 Cron does not catch up missed jobs after the Mac wakes. Keep the host awake for the scheduled windows:
 
@@ -571,7 +598,9 @@ _A quieter read for the weekend._
 ### Delivery
 - **`scripts/run_modular_digest.sh`** — canonical persona digest pipeline; passes `--date` into ingestion and rendering; writes `knos-digest/YYYY-MM-DD.md`
 - **`scripts/run_modular_digest.sh --historical-hn`** — historical HN backfill mode; fetches HN submissions for `--date` through Algolia and marks rows with `items.source_api = 'hackernews_algolia'`
-- **`scripts/run_catalog_ingest.sh`** — cron-safe morning wrapper around `scripts/run_modular_digest.sh --overwrite`; commits and pushes the rendered digest artifact when it changes
+- **`scripts/run_catalog_ingest.sh`** — cron-safe morning wrapper around `scripts/run_modular_digest.sh --overwrite`; commits and pushes the rendered digest artifact when it changes, then triggers the website publish workflow
+- **`scripts/run_daily_ingest_and_verify_publish.sh`** — manual ops wrapper that runs the morning path, watches the website GitHub Action, and verifies the public website JSON
+- **`scripts/check_daily_digest_ready.sh`** — readiness guard used by the 10:30 alert and external delivery wrappers
 - **`scripts/send_whatsapp_digest_prompt.sh`** — prints a WhatsApp-ready summary plus persona-filtered website link for one configured user
 - **`scripts/deliver_whatsapp_digest.sh`** — delivery wrapper; can run full generation/site refresh manually, or send-only with `--skip-digest --skip-site`
 - **`scripts/baileys_send.mjs`** — local Baileys WhatsApp Web sender used by the delivery wrapper
@@ -711,10 +740,14 @@ knowledge-os/
 │
 ├── scripts/
 │   ├── run_catalog_ingest.sh    # Cron-safe morning ingest/render + digest artifact push
+│   ├── run_daily_ingest_and_verify_publish.sh # Run ingest, watch website publish, verify public JSON
+│   ├── check_daily_digest_ready.sh # Website publish readiness guard and VB alert
 │   ├── run_modular_digest.sh    # Canonical persona digest runner
 │   ├── send_whatsapp_digest_prompt.sh # Website-link WhatsApp prompt
 │   ├── deliver_whatsapp_digest.sh # End-to-end website + WhatsApp delivery wrapper
 │   ├── daily_vb_whatsapp_digest.sh # Cron-safe daily VB delivery
+│   ├── daily_manas_whatsapp_digest.sh # Cron-safe Manas delivery
+│   ├── daily_mikey_whatsapp_digest.sh # Cron-safe Mikey delivery
 │   ├── weekly_kintu_whatsapp_digest.sh # Cron-safe Friday Kintu delivery
 │   ├── baileys_send.mjs         # Baileys WhatsApp Web sender
 │   ├── query_catalog.sh         # Catalog items/authors summary
@@ -756,14 +789,23 @@ knowledge-os/
 ## Scheduling
 
 ```bash
-# Generate and push the website-facing digest: 9 AM daily
+# Generate, push, and trigger website publish: 9 AM IST daily
 0 9 * * * /Users/vb/dev/projects/knowledge-os/scripts/run_catalog_ingest.sh
 
-# Deliver VB daily from the existing digest: 2 PM daily
+# Alert if the website has not published today's digest: 10:30 AM IST daily
+30 10 * * * /Users/vb/dev/projects/knowledge-os/scripts/check_daily_digest_ready.sh --alert-vb
+
+# Deliver Manas at 2 PM Singapore time, represented as 11:30 AM under Asia/Kolkata
+30 11 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_manas_whatsapp_digest.sh
+
+# Deliver VB daily from the existing digest: 2 PM IST daily
 0 14 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_vb_whatsapp_digest.sh
 
-# Deliver Kintu weekly from the existing digest: 2 PM Friday
+# Deliver Kintu weekly from the existing digest: 2 PM IST Friday
 0 14 * * 5 /Users/vb/dev/projects/knowledge-os/scripts/weekly_kintu_whatsapp_digest.sh
+
+# In a CRON_TZ=America/Los_Angeles block: deliver Mikey at 2 PM Pacific
+0 14 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_mikey_whatsapp_digest.sh
 
 # Weekly summary: Monday 9 AM
 0 9 * * 1 /Users/vb/dev/projects/knowledge-os/venv/bin/python -m knowledge_os.weekly_summary

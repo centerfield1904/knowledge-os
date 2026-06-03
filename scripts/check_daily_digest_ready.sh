@@ -7,7 +7,7 @@ PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
 cd "$PROJECT_ROOT"
 
 DATE="$(date +%F)"
-USER_ID="manas"
+USER_ID=""
 DATA_URL="${KNOS_DIGEST_DATA_URL:-https://www.bvaibhav.info/data/knos-digest.json}"
 STATE_DIR="${KNOS_CRON_STATE_DIR:-$HOME/Library/Application Support/knowledge-os/cron}"
 RECIPIENTS="${RECIPIENTS:-$HOME/.config/knowledge-os/whatsapp-recipients.json}"
@@ -17,10 +17,10 @@ ALERT_ONCE=true
 
 usage() {
     cat <<'USAGE'
-Usage: scripts/check_manas_digest_ready.sh [options]
+Usage: scripts/check_daily_digest_ready.sh [options]
 
 Options:
-  --user ID              Optional delivery context for logs, defaults to manas
+  --user ID              Optional delivery context for logs
   --date YYYY-MM-DD       Digest date, defaults to today
   --data-url URL          Published website JSON, defaults to bvaibhav.info data URL
   --state-dir PATH        Cron state dir, defaults to ~/Library/Application Support/knowledge-os/cron
