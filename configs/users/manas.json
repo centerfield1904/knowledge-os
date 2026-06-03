@@ -1,0 +1,11 @@
+{
+  "user": {
+    "identifier": "manas",
+    "timezone": "Asia/Calcutta",
+    "personas": ["llm_researcher", "ai_researcher", "startup_founder"]
+  },
+  "delivery": {
+    "type": "website_link",
+    "base_url": "https://www.bvaibhav.info/knos-digest"
+  }
+}
