@@ -17,5 +17,7 @@ if [ -n "${JAVA_HOME:-}" ]; then
 fi
 export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
 
-bash scripts/check_daily_digest_ready.sh --user mikey
-bash scripts/deliver_whatsapp_digest.sh --users mikey --skip-digest --skip-site --send
+DATE="$(TZ=America/Los_Angeles date +%F)"
+
+bash scripts/check_daily_digest_ready.sh --user mikey --date "$DATE"
+bash scripts/deliver_whatsapp_digest.sh --users mikey --date "$DATE" --skip-digest --skip-site --send
