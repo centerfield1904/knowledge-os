@@ -17,6 +17,12 @@ if [ -n "${JAVA_HOME:-}" ]; then
 fi
 export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
 
+PACIFIC_TIME="$(TZ=America/Los_Angeles date +%H:%M)"
+if [ "${MIKEY_REQUIRE_PACIFIC_TIME:-true}" = "true" ] && [ "$PACIFIC_TIME" != "14:00" ]; then
+    echo "Skipping Mikey delivery at Pacific time $PACIFIC_TIME; expected 14:00" >&2
+    exit 0
+fi
+
 DATE="$(TZ=America/Los_Angeles date +%F)"
 
 bash scripts/check_daily_digest_ready.sh --user mikey --date "$DATE"

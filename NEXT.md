@@ -135,6 +135,7 @@
 - Focus on reliability first, features second
 - MVP → iterate philosophy applies here too
 - If engagement drops, audit match quality before adding features
+- Create one scheduled delivery script that reads cadence, timezone, recipient, and persona settings from `configs/`. Cron should only trigger the scheduler; it should not encode one cron entry per user.
 
 ---
 

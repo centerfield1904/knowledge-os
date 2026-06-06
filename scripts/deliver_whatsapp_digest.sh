@@ -23,6 +23,7 @@ SKIP_DIGEST=false
 SKIP_INGEST=false
 SKIP_SITE=false
 SKIP_BUILD=false
+LOCK_DIR=""
 
 usage() {
     cat <<'USAGE'
@@ -77,6 +78,36 @@ log_step() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >&2
 }
 
+acquire_send_lock() {
+    local lock_root="${WHATSAPP_LOCK_ROOT:-$HOME/Library/Application Support/knowledge-os/cron}"
+    local timeout="${WHATSAPP_LOCK_TIMEOUT_SECONDS:-900}"
+    local waited=0
+    mkdir -p "$lock_root"
+    LOCK_DIR="$lock_root/whatsapp-delivery.lock"
+
+    while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+        local lock_pid=""
+        if [ -f "$LOCK_DIR/pid" ]; then
+            lock_pid="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+        fi
+        if [ -n "$lock_pid" ] && ! kill -0 "$lock_pid" 2>/dev/null; then
+            rm -f "$LOCK_DIR/pid"
+            rmdir "$LOCK_DIR" 2>/dev/null || true
+            continue
+        fi
+        if [ "$waited" -ge "$timeout" ]; then
+            echo "Timed out waiting for WhatsApp delivery lock: $LOCK_DIR" >&2
+            exit 1
+        fi
+        log_step "Waiting for WhatsApp delivery lock"
+        sleep 5
+        waited=$((waited + 5))
+    done
+
+    echo "$$" > "$LOCK_DIR/pid"
+    trap 'rm -f "$LOCK_DIR/pid" 2>/dev/null || true; rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+}
+
 if ! $SKIP_DIGEST; then
     log_step "Generating canonical persona digest"
     RUN_ARGS=(--db "$DB" --date "$DATE" --overwrite)
@@ -127,6 +158,7 @@ else
 fi
 
 if $SEND; then
+    acquire_send_lock
     DELIVERY_ARGS+=(--send)
     if [ -n "$SEND_COMMAND" ]; then
         DELIVERY_ARGS+=(--send-command "$SEND_COMMAND")

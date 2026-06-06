@@ -375,13 +375,13 @@ JAVA_HOME=/opt/homebrew/opt/openjdk
 30 10 * * * /Users/vb/dev/projects/knowledge-os/scripts/check_daily_digest_ready.sh --alert-vb >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
 30 11 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_manas_whatsapp_digest.sh >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
 0 14 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_vb_whatsapp_digest.sh >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
-0 14 * * 5 /Users/vb/dev/projects/knowledge-os/scripts/weekly_kintu_whatsapp_digest.sh >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
-
-CRON_TZ=America/Los_Angeles
-0 14 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_mikey_whatsapp_digest.sh >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
+5 14 * * 5 /Users/vb/dev/projects/knowledge-os/scripts/weekly_kintu_whatsapp_digest.sh >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
+30 2,3 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_mikey_whatsapp_digest.sh >> /Users/vb/Library/Logs/knowledge-os-delivery.log 2>&1
 ```
 
-In this split schedule, the 9 AM IST job calls `scripts/run_modular_digest.sh` to ingest catalog data and render `knos-digest/YYYY-MM-DD.md`, then triggers the remote website workflow. The 10:30 IST readiness job alerts VB if the website has not published the daily digest. Manas receives the link at 2 PM Singapore time (`11:30` under `Asia/Kolkata`). VB receives a daily digest at 2 PM IST; Kintu receives the weekly UX/design digest on Friday; Mikey receives the link at 2 PM Pacific time under `America/Los_Angeles`.
+In this split schedule, the 9 AM IST job calls `scripts/run_modular_digest.sh` to ingest catalog data and render `knos-digest/YYYY-MM-DD.md`, then triggers the remote website workflow. The 10:30 IST readiness job alerts VB if the website has not published the daily digest. Manas receives the link at 2 PM Singapore time (`11:30` under `Asia/Kolkata`). VB receives a daily digest at 2 PM IST; Kintu receives the weekly UX/design digest at 2:05 PM IST on Friday. Mikey's cron runs at the possible IST equivalents of 2 PM Pacific (`02:30` during daylight time, `03:30` during standard time), and `scripts/daily_mikey_whatsapp_digest.sh` exits unless the current Pacific time is exactly `14:00`.
+
+The delivery wrapper serializes WhatsApp sends with a local lock under `~/Library/Application Support/knowledge-os/cron` so overlapping cron jobs do not open the same Baileys session concurrently.
 
 The morning wrapper commits and pushes only the rendered `knos-digest/YYYY-MM-DD.md` artifact when it changes:
 
@@ -641,10 +641,10 @@ knowledge-os/
 0 14 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_vb_whatsapp_digest.sh
 
 # Deliver Kintu weekly from the existing digest: 2 PM IST Friday
-0 14 * * 5 /Users/vb/dev/projects/knowledge-os/scripts/weekly_kintu_whatsapp_digest.sh
+5 14 * * 5 /Users/vb/dev/projects/knowledge-os/scripts/weekly_kintu_whatsapp_digest.sh
 
-# In a CRON_TZ=America/Los_Angeles block: deliver Mikey at 2 PM Pacific
-0 14 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_mikey_whatsapp_digest.sh
+# Run at both possible IST equivalents; the wrapper sends only at 2 PM Pacific
+30 2,3 * * * /Users/vb/dev/projects/knowledge-os/scripts/daily_mikey_whatsapp_digest.sh
 
 ```
 
