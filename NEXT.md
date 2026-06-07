@@ -136,6 +136,12 @@
 - MVP → iterate philosophy applies here too
 - If engagement drops, audit match quality before adding features
 - Create one scheduled delivery script that reads cadence, timezone, recipient, and persona settings from `configs/`. Cron should only trigger the scheduler; it should not encode one cron entry per user.
+- Harden the daily publish path so `10:30 IST` readiness does not depend on best-effort GitHub scheduled runs:
+  - Give cron a non-keychain GitHub token path, or replace `gh workflow run` with a direct API call using a scoped PAT.
+  - Write the ingest success marker after the digest commit/push succeeds, and record website dispatch status separately so one failed dispatch does not erase proof of ingest success.
+  - Add retry/backoff around website workflow dispatch and readiness polling before alerting VB.
+  - Add a more frequent `bvaibhav-info` fallback publish schedule during the `09:15-10:30 IST` window.
+  - Move the publish trigger closer to the repository boundary long term: either a GitHub Action in `knowledge-os` dispatches `bvaibhav-info`, or the website workflow reacts to `knowledge-os` digest pushes without relying on the Mac.
 
 ---
 
