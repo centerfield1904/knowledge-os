@@ -3,7 +3,6 @@
 ## Immediate (This Week)
 
 - [ ] **Add persona digest preview diagnostics** — The canonical persona renderer now selects directly from scored catalog rows. Add a dry-run query that explains every rejected candidate by persona threshold, source, source-aware cadence window, send-day gating, and exclusive-assignment winner.
-- [ ] **Fix cron-safe GitHub CLI auth for website dispatch** — Cron cannot read the keychain-backed `gh` token even though interactive shells can. The website workflow now has a 10:15 IST scheduled fallback, but the permanent fix is to make local dispatch headless-safe, likely via an explicit `GH_TOKEN` loaded from a local `chmod 600` env file or equivalent.
 - [ ] **Audit recipient-local digest dates** — Mikey now uses `America/Los_Angeles` for `--date`; verify any future non-IST recipients compute digest date in their own delivery timezone rather than the Mac's timezone.
 - [ ] **Stabilize persona digest volume** — Audit persona `selection` defaults, source coverage, and scoring coverage so each subscribed persona has enough candidates before WhatsApp summaries link to the website.
 - [ ] **Add cross-day digest de-dupe at render time** — HN cadence now uses `items.fetched_at`, so a high-scoring HN story can rarely appear across multiple days if it remains in the fetched source set. Add a rendered/delivered item suppression check keyed by `item_id` or URL across recent digest artifacts, with a `--rerun`/debug escape hatch so intentional backfills remain possible.
@@ -136,10 +135,9 @@
 - MVP → iterate philosophy applies here too
 - If engagement drops, audit match quality before adding features
 - Create one scheduled delivery script that reads cadence, timezone, recipient, and persona settings from `configs/`. Cron should only trigger the scheduler; it should not encode one cron entry per user.
-- Harden the daily publish path so `10:30 IST` readiness does not depend on best-effort GitHub scheduled runs:
-  - Give cron a non-keychain GitHub token path, or replace `gh workflow run` with a direct API call using a scoped PAT.
-  - Write the ingest success marker after the digest commit/push succeeds, and record website dispatch status separately so one failed dispatch does not erase proof of ingest success.
-  - Add retry/backoff around website workflow dispatch and readiness polling before alerting VB.
+- Harden the daily publish path so `10:30 IST` readiness does not depend on a single best-effort GitHub scheduled run:
+  - Keep the local ingest marker scoped to digest generation and push only; website publish readiness is verified through the public JSON.
+  - Add retry/backoff around readiness polling before alerting VB.
   - Add a more frequent `bvaibhav-info` fallback publish schedule during the `09:15-10:30 IST` window.
   - Move the publish trigger closer to the repository boundary long term: either a GitHub Action in `knowledge-os` dispatches `bvaibhav-info`, or the website workflow reacts to `knowledge-os` digest pushes without relying on the Mac.
 

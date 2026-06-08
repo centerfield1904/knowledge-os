@@ -60,8 +60,6 @@ fi
 
 if [ ! -s "$MARKER_PATH" ]; then
     add_failure "Morning ingest success marker missing: $MARKER_PATH"
-elif ! grep -q '^website_workflow_status=triggered$' "$MARKER_PATH"; then
-    add_failure "Website GitHub Action was not triggered successfully: $MARKER_PATH"
 fi
 
 if ! git cat-file -e "HEAD:${DIGEST_PATH}" 2>/dev/null; then
