@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run the daily ingest path and verify the scheduled website publish.
+# Run the daily ingest/publish path and verify public readiness.
 set -euo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -16,9 +16,8 @@ usage() {
     cat <<'USAGE'
 Usage: scripts/run_daily_ingest_and_verify_publish.sh [options] [run_catalog_ingest options]
 
-Runs the production morning ingest wrapper and verifies that bvaibhav.info has
-published today's digest. Website publishing is handled by the scheduled
-bvaibhav-info GitHub Action cron, not by this script.
+Runs the production morning ingest wrapper, which dispatches the bvaibhav-info
+GitHub Action, then verifies that bvaibhav.info has published today's digest.
 
 Options:
   --date YYYY-MM-DD       Digest date, defaults to today; forwarded to run_catalog_ingest.sh
