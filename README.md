@@ -244,7 +244,21 @@ If `query_fetched_items.sh` shows scored rows but the debug render reports `outs
 
 The publish path is remote. `scripts/run_catalog_ingest.sh` commits and pushes the latest `knos-digest/YYYY-MM-DD.md`, then triggers the `bvaibhav-info` GitHub Action with GitHub CLI. The wrapper writes a daily success marker under `~/Library/Application Support/knowledge-os/cron/` only after the digest push and workflow dispatch succeed.
 
-Cron cannot rely on the macOS keychain-backed interactive `gh auth login`. Give cron a scoped token in a private env file:
+Cron cannot rely on the macOS keychain-backed interactive `gh auth login`. Give cron a scoped token in a private env file.
+
+Create the token in GitHub:
+
+1. Open <https://github.com/settings/personal-access-tokens/new>.
+2. Set **Token name** to `knowledge-os-cron-publish`.
+3. Set **Expiration** to a real rotation window, for example 90 or 180 days.
+4. Set **Resource owner** to `centerfield1904`.
+5. Set **Repository access** to **Only select repositories**, then select `bvaibhav-info`.
+6. Under **Repository permissions**, set:
+   - **Actions**: **Read and write**
+   - **Contents**: **Read-only** if the UI requires it for workflow lookup
+7. Click **Generate token** and copy it once. GitHub will not show it again.
+
+Install it for cron:
 
 ```bash
 mkdir -p ~/.config/knowledge-os
@@ -253,7 +267,42 @@ chmod 600 ~/.config/knowledge-os/cron.env
 $EDITOR ~/.config/knowledge-os/cron.env
 ```
 
-The token should be a fine-grained GitHub PAT with Actions read/write access to `centerfield1904/bvaibhav-info`.
+Set the file to:
+
+```bash
+GH_TOKEN=github_pat_your_token_here
+```
+
+Verify the file is private:
+
+```bash
+ls -l ~/.config/knowledge-os/cron.env
+```
+
+The mode should start with `-rw-------`.
+
+Test the same auth shape cron will use:
+
+```bash
+cd /Users/vb/dev/projects/knowledge-os
+
+env -i \
+  HOME="$HOME" \
+  PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" \
+  bash -lc 'set -a; . ~/.config/knowledge-os/cron.env; set +a; gh workflow run update-digest.yml --repo centerfield1904/bvaibhav-info'
+```
+
+Confirm a `workflow_dispatch` run was created:
+
+```bash
+gh run list --repo centerfield1904/bvaibhav-info --workflow update-digest.yml --limit 3
+```
+
+After the next 9 AM cron run, verify the success marker includes `website_workflow_status=triggered`:
+
+```bash
+cat "$HOME/Library/Application Support/knowledge-os/cron/ingest-$(date +%F).env"
+```
 
 For manual operations, use the monitored wrapper. It triggers the website workflow and polls readiness:
 
