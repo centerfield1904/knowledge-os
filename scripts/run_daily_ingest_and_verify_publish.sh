@@ -51,7 +51,11 @@ done
 mkdir -p "$(dirname "$INGEST_LOG")"
 
 echo "Running daily ingest for ${DATE}; appending logs to ${INGEST_LOG}" >&2
-bash scripts/run_catalog_ingest.sh "${RUN_ARGS[@]}" >> "$INGEST_LOG" 2>&1
+if [ "${#RUN_ARGS[@]}" -gt 0 ]; then
+    bash scripts/run_catalog_ingest.sh "${RUN_ARGS[@]}" >> "$INGEST_LOG" 2>&1
+else
+    bash scripts/run_catalog_ingest.sh >> "$INGEST_LOG" 2>&1
+fi
 
 echo "Ingest completed. Recent ingest log:" >&2
 tail -n 80 "$INGEST_LOG" >&2
