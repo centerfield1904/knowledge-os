@@ -57,7 +57,8 @@
 - [ ] **Store feedback** - Deferred; do not build link/open tracking until the manual launch proves which signal is useful
 
 ### UX
-- [ ] **Build an ops view if needed** — If cron visibility becomes painful, create a small status page or CLI around current schedules, last run markers, and log tails.
+- [ ] **Build an ops view if needed** — If cron visibility becomes painful, create a small status page or CLI around current schedules, last run markers, log tails, and last website workflow run.
+- [ ] **Add host-awake/missed-cron monitoring** — Cron cannot log a run that never starts because the Mac is asleep. Add a host-level wake policy for the 9 AM IST ingest window, or an external marker monitor that alerts if `ingest-YYYY-MM-DD.env` is missing after 9:15 IST.
 
 ### Similar
 - [ ] https://www.kerns.ai

@@ -443,6 +443,29 @@ In this split schedule, the 9 AM IST job calls `scripts/run_modular_digest.sh` t
 
 The delivery wrapper serializes WhatsApp sends with a local lock under `~/Library/Application Support/knowledge-os/cron` so overlapping cron jobs do not open the same Baileys session concurrently.
 
+Verify the installed crontab with:
+
+```bash
+crontab -l
+```
+
+Verify daily state after the morning window:
+
+```bash
+cat "$HOME/Library/Application Support/knowledge-os/cron/ingest-$(date +%F).env"
+stat -f '%Sm %N' \
+  "$HOME/Library/Logs/knowledge-os-ingest.log" \
+  "$HOME/Library/Logs/knowledge-os-delivery.log"
+```
+
+The ingest marker should include `website_workflow_status=triggered`. If the marker is missing and the ingest log has no entry for the day, cron likely did not launch, usually because the Mac was asleep. More logging inside `scripts/run_catalog_ingest.sh` cannot detect that case because the script never starts. Use macOS power logs to confirm missed launches:
+
+```bash
+pmset -g log | rg "^$(date +%F) (08|09|10):" | egrep ' Sleep | Wake | DarkWake |Entering'
+```
+
+For reliable scheduled delivery, keep the host awake across the cron windows or add a host-level wake/monitor. The useful monitoring signal is the daily ingest marker, not another line in the script log.
+
 The morning wrapper commits and pushes only the rendered `knos-digest/YYYY-MM-DD.md` artifact when it changes:
 
 ```bash
@@ -496,6 +519,7 @@ Practical setup:
 - Wake at `08:55`
 - Ingest at `09:00`
 - Delivery at `14:00`
+- Check for today's ingest marker after `09:15`; if it is missing, the host likely missed the cron launch
 
 Also disable aggressive sleep while plugged in:
 
@@ -509,12 +533,12 @@ sudo pmset -c sleep 0
 
 The current production path is modular:
 
-1. `scripts/run_catalog_ingest.sh` runs the morning cron path and publishes only the rendered digest artifact when it changes.
+1. `scripts/run_catalog_ingest.sh` runs the morning cron path, commits/pushes the rendered digest artifact when it changes, and triggers the website publish workflow.
 2. `scripts/run_modular_digest.sh` initializes the schema, ingests catalog rows, materializes personas, scores topics, and renders `knos-digest/YYYY-MM-DD.md`.
 3. `knowledgeos.Ingest` fetches current HN stories through Firebase by default, or a requested historical HN submission date through Algolia when `--historical-hn` is passed. RSS/Substack fetching is unchanged.
 4. `src/knowledge_os/persona_digest.py` selects from precomputed scores using persona selection rules, source-aware cadence timestamps, optional send-day gates, and exclusive persona assignment, then renders one canonical persona-marked markdown file.
 5. `scripts/daily_vb_whatsapp_digest.sh` and `scripts/weekly_kintu_whatsapp_digest.sh` send from the existing markdown artifact at 2 PM without regenerating the catalog or website.
-6. The website export/build is handled by the remote `bvaibhav-info` GitHub Action after the digest artifact is pushed.
+6. The website export/build is handled by the remote `bvaibhav-info` GitHub Action after the digest artifact is pushed and the workflow is dispatched.
 
 The main runtime modules are:
 
@@ -646,7 +670,7 @@ knowledge-os/
 │   └── feedback_events.py       # Common feedback event ingestion
 │
 ├── scripts/
-│   ├── run_catalog_ingest.sh    # Cron-safe morning ingest/render + digest artifact push
+│   ├── run_catalog_ingest.sh    # Cron-safe morning ingest/render + publish workflow trigger
 │   ├── run_daily_ingest_and_verify_publish.sh # Run ingest, trigger website publish, verify public JSON
 │   ├── check_daily_digest_ready.sh # Website publish readiness guard and VB alert
 │   ├── run_modular_digest.sh    # Canonical persona digest runner
