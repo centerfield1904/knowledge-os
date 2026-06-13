@@ -529,10 +529,10 @@ def test_whatsapp_summary_ranks_teasers_by_points_and_strips_emoji(tmp_path):
 def test_short_digest_url_encodes_persona_codes():
     # Known personas collapse to their short codes; date pins via d=.
     url = short_digest_url(
-        ["ai_researcher", "llm_researcher"],
+        ["ai_researcher", "robotics", "llm_researcher"],
         digest_date="2026-06-01",
     )
-    assert url == "https://www.bvaibhav.info/knos-digest?p=ai,llm&d=2026-06-01"
+    assert url == "https://www.bvaibhav.info/knos-digest?p=ai,rb,llm&d=2026-06-01"
 
 
 def test_short_digest_url_passes_unknown_persona_through():

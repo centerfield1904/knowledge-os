@@ -25,7 +25,7 @@ PERSONA_CODES = {
     "data_eng": "de",
     "data_scientist": "ds",
     "ai_researcher": "ai",
-    "robotics": "robotics",
+    "robotics": "rb",
     "llm_researcher": "llm",
     "pm": "pm",
     "ux_design": "ux",
