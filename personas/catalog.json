@@ -68,6 +68,23 @@
         }
       ]
     },
+    "robotics": {
+      "name": "Robotics",
+      "selection": {
+        "min_topic_score": 0.32,
+        "cadence": "daily",
+        "freshness_days": 1,
+        "sources": ["hackernews", "substack"],
+        "max_items": 8
+      },
+      "topics": [
+        {
+          "name": "Robotics",
+          "description": "Robotics, embodied AI, autonomous systems, robot learning, manipulation, locomotion, sensors, drones, and industrial automation.",
+          "keywords": ["robotics", "robots", "robot learning", "embodied AI", "autonomous systems", "manipulation", "locomotion", "SLAM", "computer vision", "drones", "industrial automation"]
+        }
+      ]
+    },
     "llm_researcher": {
       "name": "LLM Researcher",
       "selection": {

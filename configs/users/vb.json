@@ -2,7 +2,7 @@
   "user": {
     "identifier": "vb",
     "timezone": "Asia/Calcutta",
-    "personas": ["data_scientist", "ai_researcher", "applied_math", "philosopher", "parenting_education"]
+    "personas": ["data_scientist", "ai_researcher", "robotics", "applied_math", "philosopher", "parenting_education"]
   },
   "delivery": {
     "type": "website_link",
