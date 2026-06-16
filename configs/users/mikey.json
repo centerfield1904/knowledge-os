@@ -2,7 +2,7 @@
   "user": {
     "identifier": "mikey",
     "timezone": "America/New_York",
-    "personas": ["llm_researcher"]
+    "personas": ["llm_researcher", "robotics"]
   },
   "delivery": {
     "type": "website_link",
