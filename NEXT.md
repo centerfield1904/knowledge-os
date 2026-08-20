@@ -4,6 +4,7 @@
 
 - [ ] **Add persona digest preview diagnostics** — The canonical persona renderer now selects directly from scored catalog rows. Add a dry-run query that explains every rejected candidate by persona threshold, source, source-aware cadence window, send-day gating, and exclusive-assignment winner.
 - [ ] **Verify cron-safe GitHub token dispatch** — `scripts/run_catalog_ingest.sh` now loads `~/.config/knowledge-os/cron.env` and uses `GH_TOKEN` for `gh workflow run`. Create a fine-grained PAT, install it locally with `chmod 600`, and confirm the next 9 AM cron writes `website_workflow_status=triggered`.
+- [x] **Add gap-day recovery helper** — COMPLETE (2026-08-20: added a read-only gap summary command and a shell wrapper that loops the existing date-aware ingest/render/publish commands; no new ingest path required)
 - [ ] **Audit recipient-local digest dates** — Mikey now uses `America/Los_Angeles` for `--date`; verify any future non-IST recipients compute digest date in their own delivery timezone rather than the Mac's timezone.
 - [ ] **Stabilize persona digest volume** — Audit persona `selection` defaults, source coverage, and scoring coverage so each subscribed persona has enough candidates before WhatsApp summaries link to the website.
 - [ ] **Add cross-day digest de-dupe at render time** — HN cadence now uses `items.fetched_at`, so a high-scoring HN story can rarely appear across multiple days if it remains in the fetched source set. Add a rendered/delivered item suppression check keyed by `item_id` or URL across recent digest artifacts, with a `--rerun`/debug escape hatch so intentional backfills remain possible.
@@ -127,6 +128,7 @@
 **2026-05-29** - Source-aware persona cadence: Hacker News now uses `items.fetched_at` for daily/weekly cadence windows; Substack/RSS continues to use `items.published_at`. Official HN Firebase API exposes near-real-time top/new/best lists and item timestamps, not a date-addressable historical front-page endpoint, so `--date` remains the logical snapshot date for HN ingest/backfill runs.
 **2026-05-30** - Historical HN ingest: added `--historical-hn` to fetch one requested HN submission date through Algolia `search_by_date`; item rows record `items.source_api` (`hackernews_firebase`, `hackernews_algolia`, `rss`) for provider-aware filtering.
 **2026-05-30** - Docs/config cleanup: removed stale `config/user.vb.example.json`; canonical user subscriptions live under `configs/users/*.json`. README and ARCHITECTURE now document the modular production path, source-aware cadence, historical HN mode, remote website publish, and send-only WhatsApp delivery wrappers.
+**2026-08-20** - Gap recovery uses the existing date-aware ingest/render/publish commands. The new helper layer is intentionally limited to reporting missing days and looping those existing commands.
 
 ---
 

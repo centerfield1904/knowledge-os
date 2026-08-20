@@ -104,6 +104,13 @@ bash scripts/query_catalog.sh
 bash scripts/query_scoring.sh
 bash scripts/query_subscriptions.sh --user vb
 bash scripts/query_feedback.sh --user vb
+venv/bin/python -m knowledge_os.gap_summary --since 2026-08-04 --until "$(date +%F)"
+
+# Backfill missed ingest/digest days locally, then publish when satisfied
+DATES="$(venv/bin/python -m knowledge_os.gap_summary --since 2026-08-04 --until "$(date +%F)" --format dates --gap-types ingest,digest)"
+bash scripts/backfill_gap_days.sh --dates "$DATES" --dry-run
+bash scripts/backfill_gap_days.sh --dates "$DATES"
+bash scripts/backfill_gap_days.sh --dates "$DATES" --publish
 
 # Browse items fetched today
 bash scripts/query_fetched_items.sh --limit 50
@@ -196,6 +203,59 @@ bash scripts/run_modular_digest.sh \
 ```
 
 Historical HN via Algolia approximates "stories submitted to HN on this date that currently satisfy the configured score filter." It is not an exact reconstruction of the HN front page or score/rank at that historical time.
+
+### Gap recovery
+
+Backfill does not require new ingestion logic. The canonical runner already accepts `--date`; the gap helper only identifies dates and runs the existing dated pipeline in a loop.
+
+Summarize missed ingest, digest, scoring, empty-digest, and read days:
+
+```bash
+venv/bin/python -m knowledge_os.gap_summary \
+  --since 2026-08-04 \
+  --until "$(date +%F)"
+```
+
+Preview the exact local backfill commands:
+
+```bash
+DATES="$(venv/bin/python -m knowledge_os.gap_summary \
+  --since 2026-08-04 \
+  --until "$(date +%F)" \
+  --format dates \
+  --gap-types ingest,digest)"
+
+bash scripts/backfill_gap_days.sh \
+  --dates "$DATES" \
+  --dry-run
+```
+
+Run local recovery for missing ingest/digest days:
+
+```bash
+bash scripts/backfill_gap_days.sh \
+  --dates "$DATES"
+```
+
+Publish recovered digest artifacts only after local output looks right:
+
+```bash
+bash scripts/backfill_gap_days.sh \
+  --dates "$DATES" \
+  --publish
+```
+
+For one-off manual loops, this is equivalent to:
+
+```bash
+for d in 2026-08-04 2026-08-05; do
+  bash scripts/run_modular_digest.sh \
+    --db knowledge_os.db \
+    --date "$d" \
+    --historical-hn \
+    --overwrite
+done
+```
 
 The item row records the fetch provider in `items.source_api`:
 
