@@ -221,6 +221,83 @@ class IngestSuite extends munit.FunSuite:
     assertEquals(stories.head.itemText, Some("Onboarding should earn attention."))
   }
 
+  test("rssStoriesFromXml supports configured Economist source and guid URL fallback") {
+    val xml =
+      """
+      <rss>
+        <channel>
+          <item>
+            <title>World in Brief: Markets move</title>
+            <guid isPermaLink="false">https://www.economist.com/the-world-in-brief/2026/08/20/example</guid>
+            <pubDate>Thu, 20 Aug 2026 00:00:00 +0000</pubDate>
+            <description>The world in brief
+
+            America's government debt passed a large milestone.</description>
+            <category>The World in Brief</category>
+          </item>
+        </channel>
+      </rss>
+      """
+    val feed = Ingest.FeedConfig(
+      url = "../economist-newspaper-rss-feed/dist/economist-fulltext.xml",
+      name = Some("The Economist"),
+      maxItems = 5,
+      requestTimeoutMs = 1000,
+      retries = 0,
+      source = "economist"
+    )
+
+    val stories = Ingest.rssStoriesFromXml(xml, feed)
+    val story = stories.head
+    val metadata = ujson.read(story.metadataJson)
+
+    assertEquals(stories.size, 1)
+    assertEquals(story.title, "World in Brief: Markets move")
+    assertEquals(story.url, "https://www.economist.com/the-world-in-brief/2026/08/20/example")
+    assertEquals(story.source, "economist")
+    assertEquals(story.sourceApi, "rss")
+    assertEquals(story.authorName, "The Economist")
+    assertEquals(story.publishedAt, Some("2026-08-20T00:00:00Z"))
+    assert(story.itemText.exists(_.contains("America's government debt passed a large milestone.")))
+    assertEquals(metadata("category").str, "The World in Brief")
+    assertEquals(metadata("feed_source").str, "economist")
+  }
+
+  test("fetchRssFeeds reads generated local XML files") {
+    val path = Files.createTempFile("economist-fulltext", ".xml")
+    Files.writeString(
+      path,
+      """
+      <rss>
+        <channel>
+          <item>
+            <title>The war on data centres is a bit fake</title>
+            <link>https://www.economist.com/business/2026/08/19/the-war-on-data-centres-is-a-bit-fake</link>
+            <guid isPermaLink="false">76864362-7902-4951-8044-f586df7a68b4</guid>
+            <pubDate>Wed, 19 Aug 2026 21:10:33 +0000</pubDate>
+            <description>Developers are exaggerating their plans.</description>
+            <category>Business</category>
+          </item>
+        </channel>
+      </rss>
+      """
+    )
+    val feed = Ingest.FeedConfig(
+      url = path.toString,
+      name = Some("The Economist"),
+      maxItems = 5,
+      requestTimeoutMs = 1000,
+      retries = 0,
+      source = "economist"
+    )
+
+    val stories = Ingest.fetchRssFeeds(Vector(feed))
+
+    assertEquals(stories.map(_.source), Vector("economist"))
+    assertEquals(stories.map(_.title), Vector("The war on data centres is a bit fake"))
+    assertEquals(stories.head.externalId, Some("76864362-7902-4951-8044-f586df7a68b4"))
+  }
+
   test("algoliaStoryFromHit normalizes historical HN stories") {
     val hit = ujson.Obj(
       "objectID" -> "123",

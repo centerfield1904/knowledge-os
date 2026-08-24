@@ -68,7 +68,7 @@ Owns static content and author state.
 
 Inputs:
 
-- Source configuration: Hacker News, Substack, and future sources.
+- Source configuration: Hacker News, Substack/RSS, Economist RSS, and future sources.
 - Raw source payloads from fetchers/scrapers.
 
 Outputs:
@@ -81,7 +81,7 @@ Rules:
 
 - `items.url` is the dedupe key for content identity.
 - Scrapers may update item metadata such as title, score, source, author, `published_at`, `fetched_at`, `external_id`, and raw text fields.
-- `published_at` is the source-native publication/submission timestamp. For HN this is the HN item timestamp; for RSS/Substack it is the feed entry timestamp.
+- `published_at` is the source-native publication/submission timestamp. For HN this is the HN item timestamp; for RSS/Substack/Economist it is the feed entry timestamp.
 - `fetched_at` is the logical catalog snapshot date. Normal current runs set it from `--date`; historical/audit runs should pass the source snapshot date being reconstructed, not wall-clock run time.
 - `source_api` records the concrete ingestion provider, currently `hackernews_firebase`, `hackernews_algolia`, or `rss`.
 - Extra content such as comments is stored separately in `item_content`; it is not folded permanently into the canonical item row.

@@ -1,10 +1,14 @@
 import json
+import subprocess
 
 from knowledge_os.whatsapp_delivery import (
+    PreparedMessage,
     build_sender_args,
     load_recipients,
     parse_user_ids,
     prepare_messages,
+    send_message,
+    write_delivery_state,
 )
 
 
@@ -158,3 +162,41 @@ def test_build_sender_args_supports_default_and_template_shapes():
         "--text",
         "hello there",
     ]
+
+
+def test_send_message_returns_sender_receipt(monkeypatch, capsys):
+    prepared = PreparedMessage(
+        user_id="vb",
+        phone="+15551234567",
+        digest_path="knos-digest/2026-06-22.md",
+        website_url="https://example.com",
+        item_count=1,
+        message="hello",
+    )
+    payload = {
+        "ok": True,
+        "messageId": "message-1",
+        "sentAt": "2026-06-22T08:30:02Z",
+        "receiptAt": "2026-06-22T08:30:03Z",
+        "receiptStatus": "delivery_ack",
+    }
+
+    def fake_run(*_args, **_kwargs):
+        return subprocess.CompletedProcess([], 0, stdout=json.dumps(payload) + "\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = send_message("sender", prepared)
+
+    assert result == payload
+    assert '"receiptStatus": "delivery_ack"' in capsys.readouterr().out
+
+
+def test_write_delivery_state_is_user_and_digest_scoped(tmp_path):
+    path = write_delivery_state(str(tmp_path), "2026-06-22", {
+        "user": "vb",
+        "status": "delivered",
+        "sent_at": "2026-06-22T08:30:02Z",
+    })
+
+    assert path.name == "delivery-2026-06-22-vb.json"
+    assert json.loads(path.read_text())["status"] == "delivered"

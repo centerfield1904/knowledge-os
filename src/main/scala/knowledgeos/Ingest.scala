@@ -3,6 +3,7 @@ package knowledgeos
 import java.sql.Connection
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.nio.file.{Files, Paths}
 import java.time.{Instant, LocalDate, ZoneOffset}
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.concurrent.duration.Duration
@@ -43,7 +44,9 @@ object Ingest:
       name: Option[String],
       maxItems: Int,
       requestTimeoutMs: Int,
-      retries: Int
+      retries: Int,
+      source: String = "substack",
+      sourceApi: String = "rss"
   )
 
   def main(raw: Array[String]): Unit =
@@ -109,33 +112,55 @@ object Ingest:
 
     sources.obj.get("substack").foreach { substack =>
       if substack("enabled").bool then
-        val maxItems = substack.obj.get("max_items_per_feed")
-          .orElse(substack.obj.get("max_items"))
-          .map(_.num.toInt)
-          .getOrElse(10)
-        val requestTimeoutMs = substack.obj.get("request_timeout_ms").map(_.num.toInt).getOrElse(15000)
-        val retries = substack.obj.get("retries").map(_.num.toInt).getOrElse(1)
-        val feeds = substack.obj.get("feeds").map(_.arr.toVector).getOrElse(Vector.empty).flatMap {
-          case feed if feed.isInstanceOf[ujson.Str] =>
-            Some(FeedConfig(feed.str, None, maxItems, requestTimeoutMs, retries))
-          case feed if feed.isInstanceOf[ujson.Obj] =>
-            feed.obj.get("url").map { url =>
-              FeedConfig(
-                url = url.str,
-                name = feed.obj.get("name").map(_.str),
-                maxItems = feed.obj.get("max_items").map(_.num.toInt).getOrElse(maxItems),
-                requestTimeoutMs = feed.obj.get("request_timeout_ms").map(_.num.toInt).getOrElse(requestTimeoutMs),
-                retries = feed.obj.get("retries").map(_.num.toInt).getOrElse(retries)
-              )
-            }
-          case _ => None
-        }
-        log(s"Configured Substack/RSS fetch: feeds=${feeds.size}, maxItemsPerFeed=$maxItems")
+        val feeds = configuredRssFeeds(substack, defaultSource = "substack", defaultSourceApi = "rss")
+        log(s"Configured Substack/RSS fetch: feeds=${feeds.size}")
+        futures += Future(fetchRssFeeds(feeds))
+    }
+
+    sources.obj.get("economist").foreach { economist =>
+      if economist("enabled").bool then
+        val feeds = configuredRssFeeds(economist, defaultSource = "economist", defaultSourceApi = "rss")
+        log(s"Configured Economist RSS fetch: feeds=${feeds.size}")
         futures += Future(fetchRssFeeds(feeds))
     }
 
     val result = Future.sequence(futures.result()).map(_.flatten.toVector)
     Await.result(result, Duration.Inf)
+
+  private def configuredRssFeeds(
+      sourceConfig: ujson.Value,
+      defaultSource: String,
+      defaultSourceApi: String
+  ): Vector[FeedConfig] =
+    val maxItems = sourceConfig.obj.get("max_items_per_feed")
+      .orElse(sourceConfig.obj.get("max_items"))
+      .map(_.num.toInt)
+      .getOrElse(10)
+    val requestTimeoutMs = sourceConfig.obj.get("request_timeout_ms").map(_.num.toInt).getOrElse(15000)
+    val retries = sourceConfig.obj.get("retries").map(_.num.toInt).getOrElse(1)
+    val source = stringField(sourceConfig, "source").getOrElse(defaultSource)
+    val sourceApi = sourceApiField(sourceConfig, defaultSourceApi)
+
+    sourceConfig.obj.get("feeds").map(_.arr.toVector).getOrElse(Vector.empty).flatMap {
+      case feed if feed.isInstanceOf[ujson.Str] =>
+        Some(FeedConfig(feed.str, None, maxItems, requestTimeoutMs, retries, source, sourceApi))
+      case feed if feed.isInstanceOf[ujson.Obj] =>
+        feed.obj.get("url").map { url =>
+          FeedConfig(
+            url = url.str,
+            name = stringField(feed, "name"),
+            maxItems = feed.obj.get("max_items").map(_.num.toInt).getOrElse(maxItems),
+            requestTimeoutMs = feed.obj.get("request_timeout_ms").map(_.num.toInt).getOrElse(requestTimeoutMs),
+            retries = feed.obj.get("retries").map(_.num.toInt).getOrElse(retries),
+            source = stringField(feed, "source").getOrElse(source),
+            sourceApi = sourceApiField(feed, sourceApi)
+          )
+        }
+      case _ => None
+    }
+
+  private def sourceApiField(value: ujson.Value, defaultSourceApi: String): String =
+    stringField(value, "source_api").orElse(stringField(value, "sourceApi")).getOrElse(defaultSourceApi)
 
   def initCatalogSchema(conn: Connection): Unit =
     Db.execute(
@@ -205,6 +230,7 @@ object Ingest:
       SET source_api = CASE
         WHEN source = 'hackernews' THEN 'hackernews_firebase'
         WHEN source = 'substack' THEN 'rss'
+        WHEN source = 'economist' THEN 'rss'
         ELSE source
       END
       WHERE source_api IS NULL OR source_api = ''
@@ -395,7 +421,7 @@ object Ingest:
       catch
         case NonFatal(ex) =>
           if remaining <= 0 then
-            Console.err.println(s"[warn] Skipping HN item after fetch failure: ${ex.getMessage}")
+            Console.err.println(s"[warn] Skipping fetch after failure: ${ex.getMessage}")
             return None
           remaining -= 1
           Thread.sleep(250L)
@@ -405,14 +431,25 @@ object Ingest:
     feeds.flatMap { feed =>
       retry(feed.retries) {
         log(s"Fetching feed ${feed.url}")
-        val body = requests
-          .get(feed.url, readTimeout = feed.requestTimeoutMs, connectTimeout = feed.requestTimeoutMs)
-          .text()
+        val body = fetchFeedText(feed)
         val stories = rssStoriesFromXml(body, feed)
         log(s"Feed ${feed.url} produced ${stories.size} item(s)")
         stories
       }.getOrElse(Vector.empty)
     }
+
+  private def fetchFeedText(feed: FeedConfig): String =
+    val rawUrl = feed.url.trim
+    if rawUrl.startsWith("http://") || rawUrl.startsWith("https://") then
+      requests
+        .get(rawUrl, readTimeout = feed.requestTimeoutMs, connectTimeout = feed.requestTimeoutMs)
+        .text()
+    else
+      val path =
+        if rawUrl.startsWith("file://") then Paths.get(java.net.URI.create(rawUrl))
+        else Paths.get(rawUrl)
+      val resolved = if path.isAbsolute then path else Paths.get("").toAbsolutePath.resolve(path).normalize()
+      Files.readString(resolved, StandardCharsets.UTF_8)
 
   def rssStoriesFromXml(xmlText: String, feed: FeedConfig): Vector[Story] =
     val root = XML.loadString(xmlText)
@@ -425,6 +462,7 @@ object Ingest:
       val url = rssEntryUrl(entry)
       if title.isEmpty || url.isEmpty then None
       else
+        val guid = text(entry, "guid")
         val author = firstNonEmpty(
           text(entry, "author"),
           text(entry, "creator"),
@@ -442,13 +480,14 @@ object Ingest:
           text(entry, "content"),
           text(entry, "content:encoded")
         )
+        val category = text(entry, "category")
         Some(
           Story(
             title = normalizeWhitespace(title),
             url = url,
-            source = "substack",
-            sourceApi = "rss",
-            externalId = Some(url),
+            source = feed.source,
+            sourceApi = feed.sourceApi,
+            externalId = Some(firstNonEmpty(guid, url)),
             authorName = normalizeWhitespace(author),
             score = 0,
             commentCount = 0,
@@ -457,6 +496,8 @@ object Ingest:
             metadataJson = ujson.Obj(
               "feed_url" -> feed.url,
               "feed_name" -> feed.name.getOrElse(hostFromUrl(feed.url)),
+              "feed_source" -> feed.source,
+              "category" -> category,
               "raw_published_at" -> publishedAt
             ).render()
           )
@@ -479,7 +520,10 @@ object Ingest:
       (entry \ "link")
         .flatMap(node => node.attribute("href").map(_.text))
         .headOption
-        .getOrElse("")
+        .getOrElse {
+          val guid = text(entry, "guid")
+          if guid.startsWith("http://") || guid.startsWith("https://") then guid else ""
+        }
 
   private def firstNonEmpty(values: String*): String =
     values.find(_.trim.nonEmpty).map(_.trim).getOrElse("")

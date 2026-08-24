@@ -6,6 +6,11 @@
   },
   "delivery": {
     "type": "website_link",
-    "base_url": "https://www.bvaibhav.info/knos-digest"
+    "base_url": "https://www.bvaibhav.info/knos-digest",
+    "schedule": {
+      "cadence": "daily",
+      "time": "14:00",
+      "timezone": "America/Los_Angeles"
+    }
   }
 }

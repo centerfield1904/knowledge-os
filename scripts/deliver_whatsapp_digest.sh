@@ -24,6 +24,7 @@ SKIP_INGEST=false
 SKIP_SITE=false
 SKIP_BUILD=false
 LOCK_DIR=""
+STATE_DIR="${KNOS_CRON_STATE_DIR:-$HOME/Library/Application Support/knowledge-os/cron}"
 
 usage() {
     cat <<'USAGE'
@@ -108,6 +109,24 @@ acquire_send_lock() {
     trap 'rm -f "$LOCK_DIR/pid" 2>/dev/null || true; rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
 }
 
+detect_run_trigger() {
+    if [ -n "${KNOS_RUN_TRIGGER:-}" ]; then
+        printf '%s\n' "$KNOS_RUN_TRIGGER"
+        return
+    fi
+    local parent="$PPID"
+    while [ "$parent" -gt 1 ]; do
+        local command_name
+        command_name="$(ps -o comm= -p "$parent" 2>/dev/null | xargs basename 2>/dev/null || true)"
+        case "$command_name" in
+            cron|crond) printf 'automatic\n'; return ;;
+        esac
+        parent="$(ps -o ppid= -p "$parent" 2>/dev/null | tr -d ' ' || true)"
+        [ -n "$parent" ] || break
+    done
+    printf 'manual\n'
+}
+
 if ! $SKIP_DIGEST; then
     log_step "Generating canonical persona digest"
     RUN_ARGS=(--db "$DB" --date "$DATE" --overwrite)
@@ -160,6 +179,7 @@ fi
 if $SEND; then
     acquire_send_lock
     DELIVERY_ARGS+=(--send)
+    DELIVERY_ARGS+=(--state-dir "$STATE_DIR" --run-trigger "$(detect_run_trigger)")
     if [ -n "$SEND_COMMAND" ]; then
         DELIVERY_ARGS+=(--send-command "$SEND_COMMAND")
     fi

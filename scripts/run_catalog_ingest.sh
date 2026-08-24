@@ -12,25 +12,72 @@ CRON_ENV="${KNOS_CRON_ENV:-$HOME/.config/knowledge-os/cron.env}"
 WEBSITE_REPO="${KNOS_WEBSITE_REPO:-centerfield1904/bvaibhav-info}"
 WEBSITE_WORKFLOW="${KNOS_WEBSITE_WORKFLOW:-update-digest.yml}"
 WEBSITE_WORKFLOW_STATUS="not_triggered"
+STARTED_AT="$(date '+%Y-%m-%dT%H:%M:%S%z')"
+RUN_MARKER_WRITTEN=false
 args=("$@")
 for ((i = 0; i < ${#args[@]}; i++)); do
     if [ "${args[$i]}" = "--date" ] && [ $((i + 1)) -lt ${#args[@]} ]; then
         DATE="${args[$((i + 1))]}"
     fi
 done
+latest_digest="knos-digest/${DATE}.md"
 
-write_success_marker() {
+detect_run_trigger() {
+    if [ -n "${KNOS_RUN_TRIGGER:-}" ]; then
+        printf '%s\n' "$KNOS_RUN_TRIGGER"
+        return
+    fi
+    local parent="$PPID"
+    while [ "$parent" -gt 1 ]; do
+        local command_name
+        command_name="$(ps -o comm= -p "$parent" 2>/dev/null | xargs basename 2>/dev/null || true)"
+        case "$command_name" in
+            cron|crond) printf 'automatic\n'; return ;;
+        esac
+        parent="$(ps -o ppid= -p "$parent" 2>/dev/null | tr -d ' ' || true)"
+        [ -n "$parent" ] || break
+    done
+    printf 'manual\n'
+}
+
+RUN_TRIGGER="$(detect_run_trigger)"
+if [ -n "${KNOS_RUN_TRIGGER:-}" ]; then
+    TRIGGER_EVIDENCE="environment"
+elif [ "$RUN_TRIGGER" = "automatic" ]; then
+    TRIGGER_EVIDENCE="cron_process_ancestry"
+else
+    TRIGGER_EVIDENCE="no_cron_process_ancestor"
+fi
+
+write_run_marker() {
+    local status="$1"
     mkdir -p "$STATE_DIR"
     {
         echo "date=$DATE"
         echo "digest_path=$latest_digest"
-        echo "git_commit=$(git rev-parse HEAD)"
+        echo "git_commit=$(git rev-parse HEAD 2>/dev/null || true)"
         echo "website_repo=$WEBSITE_REPO"
         echo "website_workflow=$WEBSITE_WORKFLOW"
         echo "website_workflow_status=$WEBSITE_WORKFLOW_STATUS"
+        echo "status=$status"
+        echo "trigger=$RUN_TRIGGER"
+        echo "trigger_evidence=$TRIGGER_EVIDENCE"
+        echo "started_at=$STARTED_AT"
         echo "completed_at=$(date '+%Y-%m-%dT%H:%M:%S%z')"
+        echo "pid=$$"
     } > "$STATE_DIR/ingest-${DATE}.env"
+    RUN_MARKER_WRITTEN=true
 }
+
+record_failure() {
+    local exit_code=$?
+    if [ "$RUN_MARKER_WRITTEN" != "true" ]; then
+        write_run_marker "failed"
+    fi
+    exit "$exit_code"
+}
+
+trap record_failure EXIT
 
 load_cron_env() {
     if [ -f "$CRON_ENV" ]; then
@@ -61,7 +108,6 @@ trigger_website_workflow() {
 
 bash scripts/run_modular_digest.sh --overwrite "$@"
 
-latest_digest="knos-digest/${DATE}.md"
 if [ ! -f "$latest_digest" ]; then
     echo "Digest markdown not found: $latest_digest" >&2
     exit 1
@@ -71,7 +117,7 @@ git add "$latest_digest"
 if git diff --cached --quiet -- "$latest_digest"; then
     echo "No digest changes to push: $latest_digest" >&2
     trigger_website_workflow
-    write_success_marker
+    write_run_marker "succeeded"
     exit 0
 fi
 
@@ -79,4 +125,4 @@ digest_date="$(basename "$latest_digest" .md)"
 git commit -m "digest: ${digest_date}"
 git push origin HEAD
 trigger_website_workflow
-write_success_marker
+write_run_marker "succeeded"

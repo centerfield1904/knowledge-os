@@ -22,6 +22,7 @@ function parseArgs(argv) {
     timeoutMs: Number(process.env.BAILEYS_TIMEOUT_MS || 60000),
     waitReceiptMs: Number(process.env.BAILEYS_WAIT_RECEIPT_MS || 15000),
     maxConnectAttempts: Number(process.env.BAILEYS_CONNECT_ATTEMPTS || 3),
+    loginSettleMs: Number(process.env.BAILEYS_LOGIN_SETTLE_MS || 10000),
     loginOnly: false,
   }
   for (let index = 0; index < argv.length; index += 1) {
@@ -69,6 +70,7 @@ Options:
   --timeout-ms N         Connect/send timeout, defaults to 60000
   --wait-receipt-ms N    Wait for delivery/read receipt after send, defaults to 15000; 0 disables
   --connect-attempts N   Socket reconnect attempts for restart-required handshakes, defaults to 3
+  BAILEYS_LOGIN_SETTLE_MS  Keep the socket open after login-only connects, defaults to 10000ms
   --login-only           Connect and save a linked session without sending
   -h, --help             Show this help
 
@@ -251,7 +253,7 @@ async function withTimeout(promise, timeoutMs, label) {
   }
 }
 
-async function connectOnce(sessionDir, timeoutMs) {
+async function connectOnce(sessionDir, timeoutMs, allowFreshLogin = false) {
   await mkdir(sessionDir, { recursive: true })
   const logger = P({ level: process.env.BAILEYS_LOG_LEVEL || 'silent' })
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir)
@@ -267,7 +269,8 @@ async function connectOnce(sessionDir, timeoutMs) {
 
   sock.ev.on('creds.update', saveCreds)
 
-  await withTimeout(new Promise((resolve, reject) => {
+  try {
+    await withTimeout(new Promise((resolve, reject) => {
     sock.ev.on('connection.update', (update) => {
       const { connection, lastDisconnect, qr } = update
       if (qr) {
@@ -288,16 +291,23 @@ async function connectOnce(sessionDir, timeoutMs) {
         }
       }
     })
-  }), timeoutMs, 'WhatsApp connection')
+    }), timeoutMs, 'WhatsApp connection')
+  } catch (error) {
+    sock.end?.()
+    if (error.message === `WhatsApp connection timed out after ${timeoutMs}ms`) {
+      throw new Error(`${error.message}; no linked WhatsApp session became ready (scan the QR with --login-only)`)
+    }
+    throw error
+  }
 
   return sock
 }
 
-async function connect(sessionDir, timeoutMs, maxAttempts) {
+async function connect(sessionDir, timeoutMs, maxAttempts, allowFreshLogin = false) {
   let lastError
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      return await connectOnce(sessionDir, timeoutMs)
+      return await connectOnce(sessionDir, timeoutMs, allowFreshLogin)
     } catch (error) {
       lastError = error
       if (!error.restartRequired || attempt === maxAttempts) {
@@ -327,10 +337,14 @@ async function main() {
   if (!Number.isFinite(args.maxConnectAttempts) || args.maxConnectAttempts <= 0) {
     throw new Error('--connect-attempts must be a positive number')
   }
+  if (!Number.isFinite(args.loginSettleMs) || args.loginSettleMs < 0) {
+    throw new Error('BAILEYS_LOGIN_SETTLE_MS must be a non-negative number')
+  }
 
-  const sock = await connect(args.sessionDir, args.timeoutMs, args.maxConnectAttempts)
+  const sock = await connect(args.sessionDir, args.timeoutMs, args.maxConnectAttempts, args.loginOnly)
   try {
     if (args.loginOnly) {
+      await new Promise((resolve) => setTimeout(resolve, args.loginSettleMs))
       console.log(JSON.stringify({ ok: true, loginOnly: true, sessionDir: args.sessionDir }))
       return
     }
@@ -342,6 +356,7 @@ async function main() {
       args.timeoutMs,
       'WhatsApp send',
     )
+    const sentAt = new Date().toISOString()
     const messageId = result?.key?.id || null
     receiptWaiter.setMessageId(messageId)
     const receipt = await receiptWaiter.promise
@@ -350,6 +365,10 @@ async function main() {
       to: args.to,
       jid,
       messageId,
+      sentAt,
+      receiptAt: receipt.receiptTimedOut || !['delivery_ack', 'read', 'played'].includes(receipt.receiptStatus)
+        ? null
+        : new Date().toISOString(),
       ...receipt,
       sessionDir: args.sessionDir,
     }))

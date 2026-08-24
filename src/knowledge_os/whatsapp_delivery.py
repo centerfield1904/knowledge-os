@@ -7,7 +7,7 @@ import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
 
@@ -15,6 +15,7 @@ from .persona_digest import BASE_URL, whatsapp_summary
 
 
 DEFAULT_RECIPIENTS = Path.home() / ".config" / "knowledge-os" / "whatsapp-recipients.json"
+DEFAULT_STATE_DIR = Path.home() / "Library" / "Application Support" / "knowledge-os" / "cron"
 
 
 @dataclass(frozen=True)
@@ -113,15 +114,45 @@ def build_sender_args(send_command: str, phone: str, message: str) -> List[str]:
     return args + ["--to", phone, "--message", message]
 
 
-def send_message(send_command: str, prepared: PreparedMessage) -> None:
+def send_message(send_command: str, prepared: PreparedMessage) -> Dict:
     args = build_sender_args(send_command, prepared.phone, prepared.message)
     try:
-        subprocess.run(args, check=True)
+        completed = subprocess.run(args, check=False, capture_output=True, text=True)
     except FileNotFoundError as exc:
         raise FileNotFoundError(
             f"Sender executable not found: {args[0]}. "
             "Install it or pass --send-command with the full sender command."
         ) from exc
+    if completed.stdout:
+        print(completed.stdout, end="" if completed.stdout.endswith("\n") else "\n")
+    if completed.stderr:
+        print(completed.stderr, file=sys.stderr, end="" if completed.stderr.endswith("\n") else "\n")
+    if completed.returncode != 0:
+        raise subprocess.CalledProcessError(completed.returncode, args)
+
+    for line in reversed(completed.stdout.splitlines()):
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and payload.get("ok") is True:
+            return payload
+    return {"ok": True, "receiptStatus": "sender_did_not_report_receipt"}
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def write_delivery_state(state_dir: str, digest_date: str, payload: Dict) -> Path:
+    """Atomically persist non-sensitive delivery evidence for one user."""
+    directory = Path(state_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"delivery-{digest_date}-{payload['user']}.json"
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    temporary.replace(path)
+    return path
 
 
 def print_prepared(prepared: Sequence[PreparedMessage], send: bool) -> None:
@@ -148,6 +179,13 @@ def main() -> None:
     parser.add_argument("--recipients", default=str(DEFAULT_RECIPIENTS))
     parser.add_argument("--base-url", default=BASE_URL)
     parser.add_argument("--send-command", default=os.environ.get("WHATSAPP_SEND_COMMAND", ""))
+    parser.add_argument("--state-dir", default=str(DEFAULT_STATE_DIR))
+    parser.add_argument(
+        "--run-trigger",
+        choices=("manual", "automatic", "unknown"),
+        default="manual",
+        help="Invocation provenance recorded with actual sends.",
+    )
     parser.add_argument("--send", action="store_true", help="Actually call the configured sender command")
     parser.add_argument("--dry-run", action="store_true", help="Print messages without sending")
     parser.add_argument("--include-empty", action="store_true", help="Deprecated; zero-item messages are sent by default")
@@ -178,8 +216,51 @@ def main() -> None:
         if args.send:
             for item in prepared:
                 if item.skipped:
+                    write_delivery_state(args.state_dir, args.date, {
+                        "user": item.user_id,
+                        "digest_date": args.date,
+                        "digest_path": item.digest_path,
+                        "item_count": item.item_count,
+                        "status": "skipped",
+                        "trigger": args.run_trigger,
+                        "completed_at": _utc_now(),
+                    })
                     continue
-                send_message(args.send_command, item)
+                started_at = _utc_now()
+                base_state = {
+                    "user": item.user_id,
+                    "digest_date": args.date,
+                    "digest_path": item.digest_path,
+                    "website_url": item.website_url,
+                    "item_count": item.item_count,
+                    "trigger": args.run_trigger,
+                    "started_at": started_at,
+                }
+                write_delivery_state(args.state_dir, args.date, {
+                    **base_state,
+                    "status": "sending",
+                })
+                try:
+                    sender_result = send_message(args.send_command, item)
+                except Exception as exc:
+                    write_delivery_state(args.state_dir, args.date, {
+                        **base_state,
+                        "status": "failed",
+                        "completed_at": _utc_now(),
+                        "error": str(exc),
+                    })
+                    raise
+                receipt_status = sender_result.get("receiptStatus", "unknown")
+                receipt_confirmed = receipt_status in {"delivery_ack", "read", "played"}
+                write_delivery_state(args.state_dir, args.date, {
+                    **base_state,
+                    "status": "delivered" if receipt_confirmed else "sent_unconfirmed",
+                    "sent_at": sender_result.get("sentAt") or _utc_now(),
+                    "receipt_at": sender_result.get("receiptAt"),
+                    "receipt_status": receipt_status,
+                    "message_id": sender_result.get("messageId"),
+                    "completed_at": _utc_now(),
+                })
         print_prepared(prepared, send=args.send)
     except KeyError as exc:
         missing = str(exc).strip("'")

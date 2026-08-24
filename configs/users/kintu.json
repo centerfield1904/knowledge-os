@@ -6,6 +6,12 @@
   },
   "delivery": {
     "type": "website_link",
-    "base_url": "https://www.bvaibhav.info/knos-digest"
+    "base_url": "https://www.bvaibhav.info/knos-digest",
+    "schedule": {
+      "cadence": "weekly",
+      "days": ["fri"],
+      "time": "14:05",
+      "timezone": "Asia/Kolkata"
+    }
   }
 }

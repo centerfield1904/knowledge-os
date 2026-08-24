@@ -1,0 +1,81 @@
+# knowledge-os
+
+Multi-source digest pipeline that fetches stories from HN and Substack RSS, matches to user topics via semantic similarity, detects engagement opportunities, and delivers daily digests.
+
+## Commands
+
+```bash
+# Run production morning ingest/render and push the digest artifact
+bash scripts/run_catalog_ingest.sh
+
+# Run ingest, monitor the website publish action, and verify public readiness
+bash scripts/run_daily_ingest_and_verify_publish.sh
+
+# Run modular ingest/render locally without publishing
+bash scripts/run_modular_digest.sh --db knowledge_os.db --date "$(date +%F)" --overwrite
+
+# Send from the existing rendered digest artifact
+bash scripts/daily_manas_whatsapp_digest.sh
+bash scripts/daily_mikey_whatsapp_digest.sh
+bash scripts/daily_vb_whatsapp_digest.sh
+bash scripts/weekly_kintu_whatsapp_digest.sh
+
+# Run tests
+venv/bin/python -m pytest tests/ -v
+
+```
+
+## Environment
+
+- **Package manager:** Always use `uv` — never bare `pip` or `pip3`
+  - Install: `uv pip install <pkg> --python venv/bin/python`
+- **Python:** Always use `venv/bin/python`, never system python
+- **Database:** SQLite at `knowledge_os.db`. Never DROP or DELETE without WHERE.
+- **Tests:** pytest with `tmp_path` fixtures for DB isolation (not `:memory:` — connections don't persist across `_get_conn()` calls)
+
+## Architecture
+
+```
+knowledgeos.Ingest ─→ items/authors/item_content
+                          ↓
+topic_scoring.py ───→ item_topic_scores
+                          ↓
+personas.py ────────→ users/user_topic_subscriptions
+                          ↓
+persona_digest.py ──→ knos-digest/YYYY-MM-DD.md
+                          ↓
+whatsapp_delivery.py / baileys_send.mjs
+```
+
+- `config/sources.example.json` — catalog ingestion source config
+- `config/topic_scoring.example.json` — ML topic scoring config
+- `personas/catalog.json` — canonical persona topic and selection config
+- `configs/users/*.json` — user persona subscriptions
+- `src/main/scala/knowledgeos/Ingest.scala` — Scala catalog ingestion; HN Firebase for current runs, HN Algolia for `--historical-hn`, RSS for Substack feeds
+- `persona_digest.py` — source-aware persona selection/rendering; HN cadence uses `fetched_at`, RSS/Substack uses `published_at`
+
+## Learning Goals
+
+I'm an engineer using this project to build product management skills. When PM mode is active:
+- Ask what problem a feature solves and for whom before discussing implementation
+- Frame tradeoffs as user value vs effort, not technical complexity
+- Surface: "What does success look like?" before writing code
+- Reference pm/PRODUCT_STRATEGY.md for product context; pm/PM_NOTEBOOK.md for learning notes
+
+## Code Conventions
+
+- Config loading: modular code uses `config/sources.example.json`, `config/topic_scoring.example.json`, `personas/catalog.json`, and `configs/users/*.json`
+- DB access in modular code: prefer explicit SQLite connections and helpers in `schema.py`/`query_pipeline.py`
+- Errors/warnings: `print(..., file=sys.stderr)` — stdout is reserved for pipeline output
+- Digest artifact: `knos-digest/YYYY-MM-DD.md`; the morning wrapper commits and pushes the latest file when it changes, then triggers `centerfield1904/bvaibhav-info/update-digest.yml` via `gh`
+- `published_at` stores the source-native publication/submission timestamp; `fetched_at` stores the logical catalog snapshot date; `source_api` records the concrete provider
+- Persona cadence is source-aware: HN uses `fetched_at`; RSS/Substack uses `published_at`
+- Website publish guard: `scripts/check_daily_digest_ready.sh` verifies the morning success marker and public `https://www.bvaibhav.info/data/knos-digest.json`; the 10:30 IST cron uses `--alert-vb`
+- WhatsApp digest links: `persona_url()` in `persona_digest.py` appends `&date=YYYY-MM-DD` derived from the digest filename stem (only when it matches a real date), so an old message reopens that day's items, not the latest site export; the site page (`bvaibhav-info/src/app/knos-digest/page.tsx`) reads the `date` param (`latest`/`all`/`YYYY-MM-DD`)
+
+## Testing
+
+- All tests in `tests/` — run with `venv/bin/python -m pytest tests/ -v`
+- Use `tmp_path` fixture for SQLite (not `:memory:`)
+- Avoid importing `sentence_transformers` in lightweight unit tests; it loads ML models
+- Test pure functions directly; mock network calls

@@ -2,7 +2,7 @@
 
 **Multi-source digest pipeline with semantic topic matching, engagement detection, and inline read tracking.**
 
-Curates stories from Hacker News and Substack RSS feeds, matches them to persona interests via sentence-transformer embeddings, and delivers cadence-aware digest links via WhatsApp.
+Curates stories from Hacker News, Substack/RSS feeds, and a generated Economist full-text RSS feed, matches them to persona interests via sentence-transformer embeddings, and delivers cadence-aware digest links via WhatsApp.
 
 ---
 
@@ -169,6 +169,8 @@ bash scripts/run_modular_digest.sh \
 
 The `--date` is threaded into ingestion as `items.fetched_at` for audit/backfill runs and into rendering as the digest date. Persona selection uses source-aware cadence timestamps: Hacker News uses `items.fetched_at`; Substack/RSS uses `items.published_at`.
 
+Economist ingestion uses the source-aware RSS adapter. `config/sources.example.json` points the `economist` source at the generated local feed `../economist-newspaper-rss-feed/dist/economist-fulltext.xml`; HTTP(S), `file://`, absolute, and repo-relative feed paths are supported. The item rows store `source = economist` and `source_api = rss`, so personas must include `economist` in `selection.sources` to surface those articles.
+
 Persona cadence lives in `personas/catalog.json` under each persona's `selection` block:
 
 ```json
@@ -261,7 +263,7 @@ The item row records the fetch provider in `items.source_api`:
 
 - `hackernews_firebase` — normal current HN Firebase API ingest
 - `hackernews_algolia` — historical HN Algolia ingest
-- `rss` — RSS/Substack feed ingest
+- `rss` — RSS/Substack/Economist feed ingest
 
 ### Debugging persona selection
 
@@ -599,6 +601,30 @@ The current production path is modular:
 4. `src/knowledge_os/persona_digest.py` selects from precomputed scores using persona selection rules, source-aware cadence timestamps, optional send-day gates, and exclusive persona assignment, then renders one canonical persona-marked markdown file.
 5. `scripts/daily_vb_whatsapp_digest.sh` and `scripts/weekly_kintu_whatsapp_digest.sh` send from the existing markdown artifact at 2 PM without regenerating the catalog or website.
 6. The website export/build is handled by the remote `bvaibhav-info` GitHub Action after the digest artifact is pushed and the workflow is dispatched.
+
+Launch health combines a read-only preview of the renderer's selection path with operational evidence from the ingest and WhatsApp delivery state directory:
+
+```bash
+venv/bin/python -m knowledge_os.launch_health \
+  --db knowledge_os.db --catalog personas/catalog.json \
+  --users-dir configs/users --users vb,mikey,kintu \
+  --date YYYY-MM-DD --format text
+```
+
+The report shows the scheduled, started, and completed ingest times; whether the run was automatic or manual; workflow dispatch status; and each user's configured delivery time, send time, receipt status, and trigger provenance. Delivery schedules live in `configs/users/*.json`. New sends write `delivery-YYYY-MM-DD-USER.json` markers under `~/Library/Application Support/knowledge-os/cron/`. For runs that predate these markers, launch health uses the cron logs as explicitly labeled legacy/inferred evidence rather than claiming certainty.
+
+`sent_unconfirmed` means the sender accepted the message but WhatsApp did not return a delivery acknowledgement before the receipt timeout. It must not be interpreted as proof that the recipient received or read the message.
+
+Curate a shared Mon–Sun weekly edition by generating a draft, checking the items to keep, and finalizing it:
+
+```bash
+venv/bin/python -m knowledge_os.weekly_summary draft --week YYYY-Www
+venv/bin/python -m knowledge_os.weekly_summary finalize --week YYYY-Www
+venv/bin/python -m knowledge_os.weekly_summary whatsapp --week YYYY-Www
+scripts/publish_weekly_summary.sh --week YYYY-Www
+```
+
+Drafts live in `knos-weekly/drafts/`; finalized website editions live in `knos-weekly/`. Final editions intentionally contain no checkboxes, so daily read tracking remains independent.
 
 The main runtime modules are:
 

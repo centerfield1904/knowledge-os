@@ -6,7 +6,7 @@
         "min_topic_score": 0.35,
         "cadence": "daily",
         "freshness_days": 1,
-        "sources": ["hackernews", "substack"],
+        "sources": ["hackernews", "substack", "economist"],
         "max_items": 8
       },
       "topics": [
@@ -23,7 +23,7 @@
         "min_topic_score": 0.35,
         "cadence": "daily",
         "freshness_days": 1,
-        "sources": ["hackernews", "substack"],
+        "sources": ["hackernews", "substack", "economist"],
         "max_items": 8
       },
       "topics": [
@@ -40,7 +40,7 @@
         "min_topic_score": 0.35,
         "cadence": "daily",
         "freshness_days": 1,
-        "sources": ["hackernews", "substack"],
+        "sources": ["hackernews", "substack", "economist"],
         "max_items": 8
       },
       "topics": [
@@ -74,7 +74,7 @@
         "min_topic_score": 0.32,
         "cadence": "daily",
         "freshness_days": 1,
-        "sources": ["hackernews", "substack"],
+        "sources": ["hackernews", "substack", "economist"],
         "max_items": 8
       },
       "topics": [
@@ -108,7 +108,7 @@
         "min_topic_score": 0.35,
         "cadence": "daily",
         "freshness_days": 1,
-        "sources": ["hackernews", "substack"],
+        "sources": ["hackernews", "substack", "economist"],
         "max_items": 8
       },
       "topics": [
@@ -126,7 +126,7 @@
         "cadence": "weekly",
         "send_days": ["fri"],
         "freshness_days": 7,
-        "sources": ["hackernews", "substack"],
+        "sources": ["hackernews", "substack", "economist"],
         "max_items": 8
       },
       "topics": [
@@ -143,7 +143,7 @@
         "min_topic_score": 0.35,
         "cadence": "daily",
         "freshness_days": 1,
-        "sources": ["hackernews", "substack"],
+        "sources": ["hackernews", "substack", "economist"],
         "max_items": 8
       },
       "topics": [
@@ -160,7 +160,7 @@
         "min_topic_score": 0.35,
         "cadence": "daily",
         "freshness_days": 1,
-        "sources": ["hackernews", "substack"],
+        "sources": ["hackernews", "substack", "economist"],
         "max_items": 8
       },
       "topics": [
@@ -177,7 +177,7 @@
         "min_topic_score": 0.35,
         "cadence": "daily",
         "freshness_days": 1,
-        "sources": ["hackernews", "substack"],
+        "sources": ["hackernews", "substack", "economist"],
         "max_items": 8
       },
       "topics": [
@@ -194,7 +194,7 @@
         "min_topic_score": 0.35,
         "cadence": "daily",
         "freshness_days": 1,
-        "sources": ["hackernews", "substack"],
+        "sources": ["hackernews", "substack", "economist"],
         "max_items": 8
       },
       "topics": [
@@ -211,7 +211,7 @@
         "min_topic_score": 0.35,
         "cadence": "daily",
         "freshness_days": 1,
-        "sources": ["hackernews", "substack"],
+        "sources": ["hackernews", "substack", "economist"],
         "max_items": 8
       },
       "topics": [

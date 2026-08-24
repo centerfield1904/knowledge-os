@@ -14,10 +14,12 @@ knowledge-os-score-topics = "knowledge_os.topic_scoring:main"
 knowledge-os-load-subscriptions = "knowledge_os.subscriptions:main"
 knowledge-os-feedback = "knowledge_os.feedback_events:main"
 knowledge-os-persona-digest = "knowledge_os.persona_digest:main"
+knowledge-os-launch-health = "knowledge_os.launch_health:main"
 knowledge-os-gap-summary = "knowledge_os.gap_summary:main"
 knowledge-os-query = "knowledge_os.query_pipeline:main"
 knowledge-os-personas = "knowledge_os.personas:main"
 knowledge-os-whatsapp-delivery = "knowledge_os.whatsapp_delivery:main"
+knowledge-os-weekly-summary = "knowledge_os.weekly_summary:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

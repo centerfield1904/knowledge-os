@@ -2,7 +2,8 @@
 
 ## Immediate (This Week)
 
-- [ ] **Add persona digest preview diagnostics** — The canonical persona renderer now selects directly from scored catalog rows. Add a dry-run query that explains every rejected candidate by persona threshold, source, source-aware cadence window, send-day gating, and exclusive-assignment winner.
+- [ ] **Add launch health summary command** — Add one read-only command that reports catalog counts by source/API, last refresh time, scored counts by topic, candidates before/after filters and de-dupe, selection totals, explicit drop reasons, per-user content risk, ingest start/completion and manual/automatic provenance, and scheduled/actual WhatsApp delivery with receipt evidence. The diagnostics must use the renderer's selection path so preview and production cannot drift.
+- [ ] **Add personally curated weekly summary workflow** — Aggregate each Mon–Sun daily archive into an editable checkbox draft, finalize only manually selected items into a shared weekly edition without daily read-tracking checkboxes, expose it as the website Weekly view, and publish a WhatsApp-ready `?view=weekly&w=YYYY-Www` link on Monday.
 - [ ] **Verify cron-safe GitHub token dispatch** — `scripts/run_catalog_ingest.sh` now loads `~/.config/knowledge-os/cron.env` and uses `GH_TOKEN` for `gh workflow run`. Create a fine-grained PAT, install it locally with `chmod 600`, and confirm the next 9 AM cron writes `website_workflow_status=triggered`.
 - [x] **Add gap-day recovery helper** — COMPLETE (2026-08-20: added a read-only gap summary command and a shell wrapper that loops the existing date-aware ingest/render/publish commands; no new ingest path required)
 - [ ] **Audit recipient-local digest dates** — Mikey now uses `America/Los_Angeles` for `--date`; verify any future non-IST recipients compute digest date in their own delivery timezone rather than the Mac's timezone.
@@ -12,7 +13,6 @@
 - [ ] **Populate modular enrichment data before rendering** — The renderer can show author karma and top-comment blurbs, but the modular path does not reliably populate `authors.metadata_json` or `item_content` yet. Add a separate enrichment step that fills HN author karma, top comments, article summaries, and source annotations without changing ranking.
 - [ ] **Improve Scala RSS/Substack adapter quality** — Current Scala ingestion fetches RSS feeds, but it is still basic: source is always `substack`, feed identity lives only in metadata, HTML entities are not decoded, and per-feed frequency is not honored in the Scala path. Add feed/source tags, robust date parsing, HTML text normalization, and fetch metrics.
 - [ ] **Separate launch feeds from VB/global scoring noise** — Kintu design feeds are now global catalog inputs, which is correct for catalog freshness but can leak AI/design overlap into Mikey/VB scoring. Add source tags or per-topic source weights so selection can distinguish "design feed item about AI UX" from core AI research content.
-- [ ] **Add launch health summary command** — One command should report catalog counts, scored-item counts by topic, candidate counts before/after filters, selected count, empty-digest risk, and last catalog refresh time for `vb`, `mikey`, and `kintu`.
 - [x] **Install Scala and verify** — COMPLETE (2026-05-13: Homebrew OpenJDK, SBT, and Scala installed; verified `scala -version`; `sbt test` passes)
 - [x] **Split target architecture into four modules** — COMPLETE (2026-05-13: catalog/ingestion, topic scoring, subscriptions/digests, feedback/engagement documented in ARCHITECTURE.md)
 - [x] **Add target schema and modular commands** — COMPLETE (2026-05-13: `knowledge_os.schema`, `topic_scoring`, `subscriptions`, `feedback_events`; Scala `knowledgeos.Ingest`)
@@ -38,7 +38,7 @@
 - [x] **Fix Substack duplicate stories** — COMPLETE (insert_item returns (item_id, is_new); digest only surfaces new stories; author/topic tracking still runs for all fetched content)
 - [x] **Run tests in PR builds** — COMPLETE (2026-03-07: `.github/workflows/tests.yml`; `pytest.ini` with `integration` marker; integration tests deselected in CI with `-m "not integration"`)
 - [x] **build a dashboard** — COMPLETE historically; old Streamlit dashboard removed with the v2 digest path
-- [ ] **Add economist as a source** - New POC: something with images, something that requires login.
+- [x] **Add economist as a source** - COMPLETE (2026-08-24: source-aware RSS ingestion reads the generated full-text Economist XML, stores items as `source = economist`, and lets broad personas select the source; login/browser scraping remains outside the production path)
 - [x] **Per-feed frequency for Substack** — COMPLETE historically; superseded by modular source/persona cadence
 - [x] **Dashboard Config tab: frequency editor** — REMOVED with old Streamlit dashboard
 - [x] **Interesting content** — COMPLETE historically; current persona renderer uses thresholded persona selection
@@ -69,7 +69,6 @@
 ### Features
 - [ ] **Thread continuity** - "You saw Story X yesterday, here's an update/follow-up"
 - [ ] **Author highlights** - "Author Y (who wrote Z last week) posted this"
-- [ ] **Weekly summary mode** - Option for digest-of-digests
 - [ ] **Weekend articles logic** Review the interesting articles logic: update the code with improvements
 
 
@@ -128,7 +127,9 @@
 **2026-05-29** - Source-aware persona cadence: Hacker News now uses `items.fetched_at` for daily/weekly cadence windows; Substack/RSS continues to use `items.published_at`. Official HN Firebase API exposes near-real-time top/new/best lists and item timestamps, not a date-addressable historical front-page endpoint, so `--date` remains the logical snapshot date for HN ingest/backfill runs.
 **2026-05-30** - Historical HN ingest: added `--historical-hn` to fetch one requested HN submission date through Algolia `search_by_date`; item rows record `items.source_api` (`hackernews_firebase`, `hackernews_algolia`, `rss`) for provider-aware filtering.
 **2026-05-30** - Docs/config cleanup: removed stale `config/user.vb.example.json`; canonical user subscriptions live under `configs/users/*.json`. README and ARCHITECTURE now document the modular production path, source-aware cadence, historical HN mode, remote website publish, and send-only WhatsApp delivery wrappers.
+**2026-06-23** - Weekly editions use manual curation through an editable draft, with a shared Mon–Sun edition finalized and sent on Monday. Launch health was selected as the next operational reliability item before expanding the weekly workflow.
 **2026-08-20** - Gap recovery uses the existing date-aware ingest/render/publish commands. The new helper layer is intentionally limited to reporting missing days and looping those existing commands.
+**2026-08-24** - Economist is a first-class catalog source via the source-aware RSS adapter. The production config reads `../economist-newspaper-rss-feed/dist/economist-fulltext.xml` and stores rows as `source = economist`, `source_api = rss`.
 
 ---
 

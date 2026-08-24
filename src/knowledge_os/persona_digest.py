@@ -106,6 +106,27 @@ class Candidate:
     fetched_at: str
 
 
+@dataclass(frozen=True)
+class SelectionDiagnostics:
+    """Structured counters for one persona-selection run."""
+
+    scored_rows: int
+    unknown_topic_rows: int
+    candidates_before_filters: int
+    candidates_after_filters: int
+    candidates_after_dedupe: int
+    selected_count: int
+    drop_reasons: Dict[str, int]
+    passed_by_persona: Dict[str, int]
+    selected_by_persona: Dict[str, int]
+
+
+@dataclass(frozen=True)
+class SelectionResult:
+    selected: List[Candidate]
+    diagnostics: SelectionDiagnostics
+
+
 def _catalog_topics(catalog: Dict) -> Dict[str, PersonaTopic]:
     validate_catalog(catalog)
     topics: Dict[str, PersonaTopic] = {}
@@ -208,8 +229,12 @@ def _candidate_sort_key(candidate: Candidate) -> tuple:
     return (-candidate.topic_score, -candidate.item_score, -published.toordinal(), candidate.title)
 
 
-def select_persona_items(db_path: str, catalog_path: str, today: Optional[date] = None) -> List[Candidate]:
-    """Select one canonical persona assignment per item from precomputed topic scores."""
+def select_persona_items_with_diagnostics(
+    db_path: str,
+    catalog_path: str,
+    today: Optional[date] = None,
+) -> SelectionResult:
+    """Select canonical persona items and return the counters behind the decision."""
     today = today or date.today()
     catalog = _load(catalog_path)
     topics = _catalog_topics(catalog)
@@ -334,7 +359,23 @@ def select_persona_items(db_path: str, catalog_path: str, today: Optional[date] 
             "Candidate drop reasons: "
             + ", ".join(f"{reason}={count}" for reason, count in sorted(drop_reason_counts.items()))
         )
-    return selected
+    diagnostics = SelectionDiagnostics(
+        scored_rows=len(rows),
+        unknown_topic_rows=unknown_topic_rows,
+        candidates_before_filters=len(rows) - unknown_topic_rows,
+        candidates_after_filters=len(candidates),
+        candidates_after_dedupe=len(best_by_item),
+        selected_count=len(selected),
+        drop_reasons=dict(sorted(drop_reason_counts.items())),
+        passed_by_persona=dict(sorted(passed_by_persona.items())),
+        selected_by_persona=dict(sorted(selected_by_persona.items())),
+    )
+    return SelectionResult(selected=selected, diagnostics=diagnostics)
+
+
+def select_persona_items(db_path: str, catalog_path: str, today: Optional[date] = None) -> List[Candidate]:
+    """Select one canonical persona assignment per item from precomputed topic scores."""
+    return select_persona_items_with_diagnostics(db_path, catalog_path, today=today).selected
 
 
 def render_persona_digest_text(candidates: Iterable[Candidate], digest_date: str, catalog_path: str) -> str:

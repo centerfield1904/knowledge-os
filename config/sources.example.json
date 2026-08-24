@@ -51,6 +51,19 @@
           "max_items": 6
         }
       ]
+    },
+    "economist": {
+      "enabled": true,
+      "max_items": 30,
+      "request_timeout_ms": 15000,
+      "retries": 1,
+      "feeds": [
+        {
+          "name": "The Economist",
+          "url": "../economist-newspaper-rss-feed/dist/economist-fulltext.xml",
+          "max_items": 30
+        }
+      ]
     }
   }
 }
