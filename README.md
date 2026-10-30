@@ -626,6 +626,8 @@ scripts/publish_weekly_summary.sh --week YYYY-Www
 
 Drafts live in `knos-weekly/drafts/`; finalized website editions live in `knos-weekly/`. Final editions intentionally contain no checkboxes, so daily read tracking remains independent.
 
+The next version of this workflow is specified but not yet built: a weekly editor where each pick carries a written take, plus a per-link deep-dive (article, HN thread and comment-subset summaries, grounded LLM Q&A) and a minimal-edit grammar fix. The build brief is `prompts/weekly-editor.md`; the proposed edition format is `prompts/weekly-edition-template.md`.
+
 The main runtime modules are:
 
 | Area | Current Files | Notes |
