@@ -1,6 +1,6 @@
 # Build brief: knos weekly editor + link deep-dive
 
-To use: open Claude Code at the knowledge-os repo root and say `Read prompts/weekly-editor.md and follow it.` The edition format lives next to this file in `prompts/weekly-edition-template.md`.
+To use: open your LLM coding agent at the knowledge-os repo root and say `Read prompts/weekly-editor.md and follow it.` The edition format lives next to this file in `prompts/weekly-edition-template.md`.
 
 Written 2026-10-30. Facts marked "verified" were checked against the repo on that date; re-check anything that matters before relying on it.
 
@@ -171,7 +171,7 @@ Where research lives: a local, gitignored cache keyed by pick id (for example un
 - Deep-dive opens beside the take, for the pick I'm on. Inserting a comment permalink into the take is one action.
 - Preview the edition roughly as the website will render it, and preview the WhatsApp message.
 - Publish through the existing path: finalize, then commit and push, then trigger the website, then the WhatsApp message. Rework `weekly_summary.py` and `scripts/publish_weekly_summary.sh` rather than building a parallel path.
-- The draft markdown file is the source of truth. The editor autosaves to it, and I can also edit it by hand in any editor or through Claude Code without breaking anything.
+- The draft markdown file is the source of truth. The editor autosaves to it, and I can also edit it by hand in any editor or through an LLM agent without breaking anything.
 - A pick can carry a "post idea" flag (the AI-writing one above is a post seed). `/next-x` should be able to read that flag.
 
 The edition format is in `prompts/weekly-edition-template.md`. Treat it as a proposal: change it if the editor or the website needs something different, but keep the properties it's built around. The file reads cleanly as plain markdown, markers are HTML comments in the repo's existing style, the draft and final share one format, and research never lands in the file.
@@ -198,9 +198,9 @@ I don't know what shape this should be. Lay out the realistic options, compare t
 1. **VS Code extension.** A webview side panel for the deep-dive, commands and code actions on the draft markdown (grammar fix as a diff, insert pick, open thread summary). Note how it gets installed locally without the Marketplace.
 2. **Local web app.** Python (FastAPI or Flask with htmx or plain JS), started with one command, opened at localhost. Three panes: week's items, draft, research. It matches the repo's stack, and it could later become a private mode of the website.
 3. **Obsidian plugin.** I already write daily and weekly notes in Obsidian (`~/obsidian-vault`). Consider whether the draft lives in the vault or the plugin points at the repo.
-4. **Claude Code-native.** Skills or slash commands (for example `/knos-dive <hn id>`, `/knos-week`, `/knos-proof`) plus the markdown file open in any editor. This is the least to build and needs no API key, because Claude Code is the LLM. It's also the weakest as an "editor".
+4. **LLM-agent-native.** Agent skills or slash commands (for example `/knos-dive <hn id>`, `/knos-week`, `/knos-proof`) plus the markdown file open in any editor. This is the least to build and needs no separate API key, because the agent is the LLM. It's also the weakest as an "editor".
 5. **Terminal UI** (Textual).
-6. **Anything else worth naming**: a Raycast extension, a native macOS app, a private claude.ai artifact page. Say in a line why each one isn't the pick, if it isn't.
+6. **Anything else worth naming**: a Raycast extension, a native macOS app, a private page hosted inside an LLM chat app. Say in a line why each one isn't the pick, if it isn't.
 
 For each option, give:
 
@@ -211,14 +211,14 @@ For each option, give:
 - **What survives if I switch later.**
 - **How the LLM is plugged in.**
 
-Architecture constraint, whichever UI wins: put the core in Python modules with CLI subcommands that emit JSON (something like `knowledge_os.deep_dive` and a reworked `knowledge_os.weekly_summary`). That covers HN and article fetching, caching, LLM calls, and parsing and writing the edition format. The UI stays a thin shell over that. Then the UI choice is reversible, Claude Code can call the same commands, and the tests stay in pytest.
+Architecture constraint, whichever UI wins: put the core in Python modules with CLI subcommands that emit JSON (something like `knowledge_os.deep_dive` and a reworked `knowledge_os.weekly_summary`). That covers HN and article fetching, caching, LLM calls, and parsing and writing the edition format. The UI stays a thin shell over that. Then the UI choice is reversible, an LLM agent can call the same commands, and the tests stay in pytest.
 
-Hybrids are fine. For example, a Claude Code-native first version over the Python core, with a real editor UI later, is a legitimate recommendation if it gets me writing sooner.
+Hybrids are fine. For example, an LLM-agent-native first version over the Python core, with a real editor UI later, is a legitimate recommendation if it gets me writing sooner.
 
 ### Plugging in the LLM
 
-- Compare two backends: the Anthropic API with a key, or shelling out to `claude -p` (headless Claude Code, which runs on my existing subscription). Say which you recommend for each job, since deep-dive and grammar fix may want different answers.
-- Default to the latest, most capable models. At my volume (a few dozen calls a week), cost isn't a constraint, so pick for quality. Load the `claude-api` skill to confirm current model ids and API details before wiring anything.
+- Compare two backends: an LLM API with a key, or shelling out to a headless LLM agent CLI that runs on my existing subscription. Say which you recommend for each job, since deep-dive and grammar fix may want different answers.
+- Default to the latest, most capable models. At my volume (a few dozen calls a week), cost isn't a constraint, so pick for quality. Check the provider's current documentation for model ids and API details before wiring anything.
 - Keys never go in the repo. `config.json` is gitignored, but prefer an env var or a file under `~/.config/knowledge-os/` (where `cron.env` already lives).
 - Put the backend behind one small interface so it can be swapped.
 
@@ -236,7 +236,7 @@ The weekly edition replaces what the website shows, but not in the first build. 
 ## Questions to ask me before building
 
 1. **Week label.** The existing code labels an edition by the Mon–Sun week its items came from: `draft --week 2026-W43` reads 10-19 to 10-25. In my hand-kept list I called the same picks "W44 contenders (from the W43 digests)", which names the week I publish in. Which label do I want?
-2. **LLM backend.** API key, `claude -p`, or a split by job. Give me your recommendation with the question.
+2. **LLM backend.** API key, a headless LLM agent CLI, or a split by job. Give me your recommendation with the question.
 3. **Drafts in git.** The repo is public. Do drafts get committed (my half-written takes become public) or stay local until finalize?
 4. **Publish cadence.** The existing plan says finalize and send on Monday. Still true?
 
