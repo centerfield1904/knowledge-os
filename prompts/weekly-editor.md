@@ -56,6 +56,78 @@ Done means I can build that edition with the tool, deep-dive the robotics thread
 
 ---
 
+## About me: my work and how I write
+
+This section is here so the tool fits what I actually publish. It only contains what is already public on bvaibhav.info, because this repo is public. Keep it that way: no personal or family details here, in edition files, or in anything else that gets committed. The sources at the end of this section are the current versions; if they disagree with this, they win.
+
+### My work
+
+- Trained in operations research at Columbia (optimization, stochastic systems).
+- Founding engineer at Mapsense, from before the company formally existed through its acquisition by Apple in 2015.
+- About ten years at Apple Maps: ML systems, large-scale data infrastructure, geospatial systems, aerial imagery, production pipelines across 20+ countries. In my last year I designed the architecture for an internal agentic platform, which is where I learned that agents expose the debt a system already carries.
+- I left Apple in 2026 and moved to Indore. I now work independently on one question: how probabilistic AI becomes dependable in real systems, especially when it has to run local, offline and small. The site splits it into two questions. **Dependability** covers determinism, reproducibility, verification, calibration and knowing when not to answer. **Intelligence under constraint** covers small and local models, edge inference, privacy, latency, cost and offline operation.
+- Testbeds: the Acropolis Edge Lab, a student research cohort in Indore working on offline Hinglish voice Q&A and people counting on laptops and Android phones; physical and geospatial systems; agentic systems and operations automation.
+- I also do advisory work with teams putting AI into real operations. Client work is never a source for a published take, and clients are never named. If a take only makes sense with client context, it stays out of the edition.
+- State Overflow is my Substack, applying statistics to everyday decisions. I'm working through McElreath's *Statistical Rethinking*, so base rates, shrinkage and measurement error show up in how I read things.
+
+### Where the weekly edition fits
+
+- The site is canonical. X carries condensed reading observations, and LinkedIn carries occasional essays. The weekly edition is my reading observations in full, on the site, and `/next-x` picks its X candidates from it.
+- The takes that carry the most weight add something the source doesn't say: a test I ran, a number I measured, a bet specific enough to be wrong, or a connection from my own work (a decade of production maps, the Acropolis students, Indian languages and users). Plenty of takes will be a single line on why I read something, and that's fine too.
+
+### How I write
+
+What my published writing does, drawn from my Bangalore note (`notes/small-ai-real-systems.md` on the site) and my State Overflow voice rules:
+
+- First person, conversational, reflective. I open with a specific moment rather than a general observation. In the Bangalore note, a stranger at a co-working cafe tells me he can fine-tune a model to be deterministic, and I ask him one question back.
+- I label my position plainly. "My take:" appears verbatim in my notes.
+- One concrete number does more than a paragraph: "the same base model with retrieval, untrained, beat the fine-tuned version closed-book (60.35 against 56)".
+- I push back on big claims with a question.
+- A short sentence after a long one. Dry humor, never performed. A sentence over a bullet list when a sentence will do.
+- Data informs but doesn't dominate. When I'm uncertain, I say it plainly instead of stacking qualifiers.
+
+What I avoid, and what the tool must never introduce:
+
+- Moralizing or prescribing ("you should"), productivity or hustle framing, startup-speak, motivational tone.
+- "X, not Y" constructions where Y is a straw man. Say what the thing is.
+- Future-tense announcements. Evidence outranks intention: mostly past tense, some present, rarely future.
+- Words, bets or results in my name. The LLM can say what a bet would be about. The bet and any result are mine to write.
+
+My English is Indian English and fairly informal, and the grammar fix has to respect that. These fixture sentences are verbatim from my published note:
+
+| Sentence | Expected |
+|---|---|
+| "Its more about knowing the confidence (the degree of rightness)." | `Its` → `It's`. Nothing else. |
+| "The problem still lies in educating them of it's side effects." | `it's` → `its`. Leave "educating them of" alone. |
+| "And even though he didn't, I will anyday have this conversation rather than sit alone in a cafe." | `anyday` → `any day`. The sentence still starts with "And". |
+| "At a small gathering focussed on Small AI, I saw that question come up again and again." | Unchanged. "focussed" is a valid spelling and "Small AI" is my capitalization. |
+| "Why don't Anthropics and OpenAIs of the world do that every night?" | Unchanged. The construction is deliberate. |
+| "Most of my other conversations were around agents - in Bangalore, everyone is building agents." | Unchanged. I use a spaced hyphen as a dash; don't convert it to an em dash. |
+
+### What this means for the tool
+
+- **Grammar fix:** calibrate on the fixtures above. When in doubt, leave the sentence alone.
+- **Deep-dive presets:** start with questions I'd actually ask, and keep them in an editable config file rather than in code. Examples:
+  - How strong is the evidence: sample size, baseline, and whether the benchmark measures the claim?
+  - Would this hold up in production: determinism, reproducibility, failure modes?
+  - What changes on a small, offline or on-device model?
+  - Who in the thread has actually built or run this?
+  - Has HN discussed this before, and what has changed since?
+- **Deep-dive answers:** plain and specific. Numbers over adjectives, sources cited, uncertainty stated once and plainly. No hype words.
+- **Editor microcopy:** plain labels. No streaks, nudges or praise. Empty states say what's there ("No picks yet").
+- **Website (phase 3):** follow the copy rules in `bvaibhav-info/CLAUDE.md`: no unfinished signals, no sentences explaining why the page is arranged the way it is, and reader-facing labels from `READER_LABELS` instead of raw persona names.
+
+### Sources
+
+- `~/.claude/CLAUDE.md`, the Voice & Tone section
+- `~/dev/projects/bvaibhav-info/src/app/about/page.tsx` and `src/content/research.ts`
+- `~/dev/projects/bvaibhav-info/CLAUDE.md`, the copy rules and the `/knos-digest` route notes
+- `~/dev/projects/bvaibhav-info/notes/*.md`, my published notes
+- `~/dev/projects/stateoverflow/CLAUDE.md`, section 1 (author's voice)
+- `~/.claude/skills/next-x/SKILL.md`, the weekly bar and channel rules
+
+---
+
 ## Job 1: deep-dive on a link
 
 Input: a digest item (HN id or URL), or any URL I paste.
@@ -115,7 +187,7 @@ This is the part most likely to go wrong, so the rules are strict:
 - Scope is the current selection or the current take, never the whole edition at once.
 - Show it as a diff. I accept each change or all of them, and nothing is ever applied silently. Return "no changes" when there's nothing to fix.
 - Guardrail: if the proposed fix changes more than a small share of words (start around 15% at the word level and tune it), show a warning that it looks like a rewrite instead of offering it as a fix.
-- Test it with a fixture of my own sentences, some with errors and some deliberately informal but correct. The informal-but-correct ones must come back unchanged.
+- Test it with a fixture of my own sentences, some with errors and some deliberately informal but correct, starting with the table in "How I write" above. The informal-but-correct ones must come back unchanged.
 
 ---
 
